@@ -1,136 +1,105 @@
-﻿using System;
-using System.Runtime.CompilerServices;
-using GameData.Common;
+﻿using GameData.Common;
 using GameData.DomainEvents;
 using GameData.Domains;
 using GameData.Domains.Combat;
 using GameData.Domains.CombatSkill;
+using GameData.Domains.SpecialEffect;
 using GameData.Domains.SpecialEffect.CombatSkill;
+using GameData.Domains.SpecialEffect.CombatSkill.Common.Agile;
+using GameData.GameDataBridge;
+using System;
+using System.Runtime.CompilerServices;
+using TaiwuBossMod;
+using TaiwuBossMod_Backend.Utils;
 
 namespace TaiwuBossMod_Backend.Passives
 {
-    internal class HeavenlyDemonAgile : CombatSkillEffectBase
+    internal class HeavenlyDemonAgile : AgileSkillBase
     {
         public HeavenlyDemonAgile()
         {
         }
 
-        public HeavenlyDemonAgile(CombatSkillKey skillKey) : base(skillKey, 69421, -1)
+        public HeavenlyDemonAgile(CombatSkillKey skillKey) : base(skillKey, 69421)
         {
+            this.ListenCanAffectChange = true;
         }
 
         // Token: 0x0600001E RID: 30 RVA: 0x00002EA0 File Offset: 0x000010A0
         public override void OnEnable(DataContext context)
         {
-            Events.RegisterHandler_CastSkillEnd(new Events.OnCastSkillEnd(this.OnCastSkillEnd));
-            Events.RegisterHandler_DistanceChanged(new Events.OnDistanceChanged(this.OnDistanceChanged));
-            Events.RegisterHandler_SkillEffectChange(new Events.OnSkillEffectChange(this.OnSkillEffectChange));
+            base.OnEnable(context);
+            this.AffectDatas = new Dictionary<AffectedDataKey, EDataModifyType>();
+            this.AffectDatas = new Dictionary<AffectedDataKey, EDataModifyType>();
+            this.AffectDatas.Add(new AffectedDataKey(base.CharacterId, 156, -1, -1, -1, -1), EDataModifyType.Add);
+            this.AffectDatas.Add(new AffectedDataKey(base.CharacterId, 157, -1, -1, -1, -1), EDataModifyType.Add);
+            this._affecting = false;
+            this.OnMoveSkillCanAffectChanged(context, default(DataUid));
+            //FileLogger.Info($"Enabled Agile Skill!");
+            
         }
 
-        // Token: 0x0600001F RID: 31 RVA: 0x00002ED9 File Offset: 0x000010D9
+
+        // Token: 0x060050E6 RID: 20710 RVA: 0x00A4FA4E File Offset: 0x00A4DC4E
         public override void OnDisable(DataContext context)
         {
-            Events.UnRegisterHandler_CastSkillEnd(new Events.OnCastSkillEnd(this.OnCastSkillEnd));
-            Events.UnRegisterHandler_DistanceChanged(new Events.OnDistanceChanged(this.OnDistanceChanged));
-            Events.UnRegisterHandler_SkillEffectChange(new Events.OnSkillEffectChange(this.OnSkillEffectChange));
+            base.OnDisable(context);
+            DomainManager.Combat.DisableJumpMove(context, base.CombatChar, base.SkillTemplateId);
+        }
+        protected override void OnMoveSkillChanged(DataContext context, DataUid dataUid)
+        {
+            //FileLogger.Info($"Affecting Move Skill ID: {base.CombatChar.GetAffectingMoveSkillId()}");
+            //FileLogger.Info($"Is MoveSkillID == SkillTemplateID? {base.CombatChar.GetAffectingMoveSkillId() == base.SkillTemplateId}");
+            base.OnMoveSkillChanged(context, dataUid);
         }
 
-        // Token: 0x06000020 RID: 32 RVA: 0x00002F14 File Offset: 0x00001114
-        private void OnCastSkillEnd(DataContext context, int charId, bool isAlly, short skillId, sbyte power, bool interrupted)
+        public override int GetModifyValue(AffectedDataKey dataKey, int currModifyValue)
         {
-            bool flag = charId != this.CharacterId || skillId != base.SkillTemplateId;
-            bool flag2 = !flag;
-            if (flag2)
+            bool flag = dataKey.CharId != base.CharacterId;
+            int result;
+            if (flag)
             {
-                bool flag3 = !this.IsSrcSkillPerformed;
-                bool flag4 = flag3;
-                if (flag4)
+                result = 0;
+            }
+            else
+            {
+                ushort fieldId = dataKey.FieldId;
+                bool flag2 = fieldId - 156 <= 1;
+                bool flag3 = flag2;
+                if (flag3)
                 {
-                    this.IsSrcSkillPerformed = true;
-                    int[] characterList = DomainManager.Combat.GetCharacterList(!base.CombatChar.IsAlly);
-                    for (int i = 0; i < characterList.Length; i++)
-                    {
-                        bool flag5 = characterList[i] < 0;
-                        bool flag6 = !flag5;
-                        if (flag6)
-                        {
-                            CombatCharacter element_CombatCharacterDict = DomainManager.Combat.GetElement_CombatCharacterDict(characterList[i]);
-                            for (int j = 0; j < 3; j++)
-                            {
-                                DomainManager.Combat.AddWeaponExtraCd(context, element_CombatCharacterDict, j, 30000);
-                            }
-                        }
-                    }
-                    DomainManager.Combat.UpdateWeaponCanChange(context, DomainManager.Combat.GetCombatCharacter(!base.CombatChar.IsAlly, false));
-                    DomainManager.Combat.AddSkillEffect(context, base.CombatChar, new SkillEffectKey(base.SkillTemplateId, this.IsDirect), base.MaxEffectCount, base.MaxEffectCount, true);
+                    result = 10000;
                 }
                 else
                 {
-                    base.RemoveSelf(context);
+                    result = 0;
                 }
             }
+            return result;
         }
 
-        // Token: 0x06000021 RID: 33 RVA: 0x00003050 File Offset: 0x00001250
-        private void OnDistanceChanged(DataContext context, CombatCharacter mover, short distance, bool isMove, bool isForced)
+        // Token: 0x060050E7 RID: 20711 RVA: 0x00A4FA74 File Offset: 0x00A4DC74
+        protected override void OnMoveSkillCanAffectChanged(DataContext context, DataUid dataUid)
         {
-            bool flag = !this.IsSrcSkillPerformed || mover.IsAlly == base.CombatChar.IsAlly || !isMove || isForced;
-            bool flag2 = !flag;
-            if (flag2)
+            //FileLogger.Info($"In OnMoveSkillCanAffectChanged!");
+            bool canAffect = base.CanAffect;
+            bool flag = this._affecting == canAffect;
+            if (!flag)
             {
-                this._movedDistance += (int)Math.Abs(distance);
-                bool flag3 = this._movedDistance >= RequireMoveDistance;
-                bool flag4 = flag3;
-                if (flag4)
+                this._affecting = canAffect;
+                bool flag2 = canAffect;
+                if (flag2)
                 {
-                    this._movedDistance -= RequireMoveDistance;
-                    CombatCharacter combatCharacter = DomainManager.Combat.GetCombatCharacter(!base.CombatChar.IsAlly, false);
-                    DomainManager.Combat.ChangeBreathValue(context, combatCharacter, -19500);
-                    DomainManager.Combat.ChangeStanceValue(context, combatCharacter, -3000, false);
-                    DomainManager.Combat.ChangeMobilityValue(context, combatCharacter, -1000, true, base.CombatChar);
-                    DomainManager.Combat.ClearAffectingAgileSkill(context, combatCharacter);
-                    DomainManager.Combat.ShowSpecialEffectTips(this.CharacterId, base.EffectId, 0);
-                    base.ReduceEffectCount(1);
+                    DomainManager.Combat.EnableJumpMove(base.CombatChar, base.SkillTemplateId);
+                }
+                else
+                {
+                    DomainManager.Combat.DisableJumpMove(context, base.CombatChar, base.SkillTemplateId);
                 }
             }
         }
 
-        // Token: 0x06000022 RID: 34 RVA: 0x00003158 File Offset: 0x00001358
-        private void OnSkillEffectChange(DataContext context, int charId, SkillEffectKey key, short oldCount, short newCount, bool removed)
-        {
-            bool flag = removed && this.IsSrcSkillPerformed && charId == this.CharacterId && key.SkillId == base.SkillTemplateId && key.IsDirect == this.IsDirect;
-            bool flag2 = flag;
-            if (flag2)
-            {
-                int[] characterList = DomainManager.Combat.GetCharacterList(!base.CombatChar.IsAlly);
-                for (int i = 0; i < characterList.Length; i++)
-                {
-                    bool flag3 = characterList[i] < 0;
-                    bool flag4 = !flag3;
-                    if (flag4)
-                    {
-                        CombatCharacter element_CombatCharacterDict = DomainManager.Combat.GetElement_CombatCharacterDict(characterList[i]);
-                        for (int j = 0; j < 3; j++)
-                        {
-                            DomainManager.Combat.ReduceWeaponExtraCd(context, element_CombatCharacterDict, j, 30000);
-                        }
-                    }
-                }
-                DomainManager.Combat.UpdateWeaponCanChange(context, DomainManager.Combat.GetCombatCharacter(!base.CombatChar.IsAlly, false));
-                base.RemoveSelf(context);
-            }
-        }
-
-        // Token: 0x0400000D RID: 13
-        private const sbyte RequireMoveDistance = 20;
-
-        // Token: 0x0400000E RID: 14
-        private int _movedDistance;
-
-        // Token: 0x0400000F RID: 15
-        private int _frameCounter;
-
-        // Token: 0x04000010 RID: 16
-        private short AffectFrameCount = 300;
+        // Token: 0x04004FC0 RID: 20416
+        private bool _affecting;
     }
 }

@@ -59,8 +59,7 @@ namespace TaiwuBossMod_Backend.Utils
             
             foreach (short skill in newskillList)
             {
-
-                if (Config.CombatSkill.Instance[skill] != null)
+                if (Config.CombatSkill.Instance[skill] != null && !equippedCombatSkills.Contains(skill))
                 {
                     sbyte equiptype = Config.CombatSkill.Instance[skill].EquipType;
                     int availableSlotCount = (int)Char.GetCombatSkillSlotCountWithGeneric(equiptype) - Char.GetCombatSkillTypeRequireGrid(equiptype);
@@ -132,13 +131,19 @@ namespace TaiwuBossMod_Backend.Utils
             }
             __instance.GetCharacter().SetLearnedCombatSkills(learnedCombatSkills, context);
         }
-        public static void ApplySpecialEffect(SpecialEffectDomain __instance, DataContext context, CombatSkillKey skillKey, Type specialEffectType)
+        public static void ApplySpecialEffect(SpecialEffectDomain __instance, DataContext context, CombatSkillKey skillKey, Type specialEffectType, sbyte effectActiveType)
         {
             SpecialEffectBase specialEffectBase = (SpecialEffectBase)Activator.CreateInstance(specialEffectType, new object[]
             {
                 skillKey
             });
             __instance.Add(context, specialEffectBase);
+            GameData.Domains.CombatSkill.CombatSkill skill = DomainManager.CombatSkill.GetElement_CombatSkills(skillKey);
+            bool flag5 = effectActiveType == 3 || effectActiveType == 2 || effectActiveType == 1;
+            if (flag5)
+            {
+                skill.SetSpecialEffectId(specialEffectBase.Id, context);
+            }
         }
         public static T GetPrivateField<T>(object instance, string fieldName)
         {

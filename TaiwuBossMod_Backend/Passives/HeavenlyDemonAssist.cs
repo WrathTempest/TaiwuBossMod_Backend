@@ -1,12 +1,15 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Runtime.CompilerServices;
-using GameData.Common;
+﻿using GameData.Common;
 using GameData.Domains;
 using GameData.Domains.CombatSkill;
 using GameData.Domains.SpecialEffect;
 using GameData.Domains.SpecialEffect.CombatSkill.Common.Assist;
 using GameData.GameDataBridge;
+using GameData.Utilities;
+using System;
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
+using TaiwuBossMod;
+using TaiwuBossMod_Backend.Utils;
 
 
 namespace TaiwuBossMod_Backend.Passives
@@ -34,16 +37,16 @@ namespace TaiwuBossMod_Backend.Passives
         public override void OnEnable(DataContext context)
         {
             this._addPower = 0;
-            this._defeatMarkUid = new DataUid(8, 16, (ulong)((long)this.CharacterId), 58U);
-            GameDataBridge.AddPostDataModificationHandler(this._defeatMarkUid, base.DataHandlerKey, new Action<DataContext, DataUid>(this.OnDefeatMarkChanged));
-            this.AffectDatas = new Dictionary<AffectedDataKey, EDataModifyType>();
-            this.AffectDatas.Add(new AffectedDataKey(this.CharacterId, 147, -1, -1, -1, -1), EDataModifyType.Custom);
-            this.AffectDatas.Add(new AffectedDataKey(this.CharacterId, 211, -1, -1, -1, -1), EDataModifyType.AddPercent);
-            this.AffectDatas.Add(new AffectedDataKey(this.CharacterId, 110, -1, -1, -1, -1), EDataModifyType.AddPercent);
-            //this.AffectDatas.Add(new AffectedDataKey(this.CharacterId, 164, -1, -1, -1, -1), EDataModifyType.Custom);
-            //this.AffectDatas.Add(new AffectedDataKey(this.CharacterId, 241, -1, -1, -1, -1), EDataModifyType.Custom);
-            //this.AffectDatas.Add(new AffectedDataKey(this.CharacterId, 239, -1, -1, -1, -1), EDataModifyType.Custom);
-            this.AffectDatas.Add(new AffectedDataKey(this.CharacterId, 142, -1, -1, -1, -1), EDataModifyType.Custom);
+            this._defeatMarkUid = base.ParseCombatCharacterDataUid(54);
+            GameDataBridge.AddPostDataModificationHandler(this._defeatMarkUid, base.DataHandlerKey, new Action<DataContext, DataUid>(this.OnMarkChanged));
+            base.CreateAffectedData(142, EDataModifyType.Custom, -1);
+            base.CreateAffectedData(137, EDataModifyType.Custom, -1);
+            base.CreateAffectedData(211, EDataModifyType.AddPercent, -1);
+            FileLogger.Info($"Enabled HeavenlyDemonAssist! Current Power: {this._addPower}");
+            //immune to certain stuff
+            this.AffectDatas.Add(new AffectedDataKey(base.CharacterId, 159, -1, -1, -1, -1), EDataModifyType.Custom);
+            this.AffectDatas.Add(new AffectedDataKey(base.CharacterId, 229, -1, -1, -1, -1), EDataModifyType.Custom);
+            this.AffectDatas.Add(new AffectedDataKey(base.CharacterId, 227, -1, -1, -1, -1), EDataModifyType.Custom);
         }
 
         // Token: 0x06000027 RID: 39 RVA: 0x000033BD File Offset: 0x000015BD
@@ -52,31 +55,18 @@ namespace TaiwuBossMod_Backend.Passives
             GameDataBridge.RemovePostDataModificationHandler(this._defeatMarkUid, base.DataHandlerKey);
         }
 
-        // Token: 0x06000028 RID: 40 RVA: 0x000033D4 File Offset: 0x000015D4
-        private void OnDefeatMarkChanged(DataContext context, DataUid dataUid)
+        private void OnMarkChanged(DataContext context, DataUid dataUid)
         {
-            int num = 0;
-            foreach (byte b in DomainManager.Combat.GetElement_CombatCharacterDict(this.CharacterId).GetDefeatMarkCollection().OuterInjuryMarkList)
-            {
-                num += (int)b;
-            }
-            foreach (byte b2 in DomainManager.Combat.GetElement_CombatCharacterDict(this.CharacterId).GetDefeatMarkCollection().InnerInjuryMarkList)
-            {
-                num += (int)b2;
-            }
-            num += (int)DomainManager.Combat.GetElement_CombatCharacterDict(this.CharacterId).GetDefeatMarkCollection().FatalDamageMarkCount;
-            this._addPower = AddPowerUnit * num;
-            DomainManager.SpecialEffect.InvalidateCache(context, this.CharacterId, 211);
+            this._addPower = AddPowerUnit * (base.CombatChar.GetDefeatMarkCollection().OuterInjuryMarkList.Sum() + base.CombatChar.GetDefeatMarkCollection().InnerInjuryMarkList.Sum() + base.CombatChar.GetDefeatMarkCollection().FatalDamageMarkCount);
+            DomainManager.SpecialEffect.InvalidateCache(context, base.CharacterId, 211);
+            FileLogger.Info($"Mark Changed! Current Power: {this._addPower}");
         }
 
-        // Token: 0x06000029 RID: 41 RVA: 0x00003494 File Offset: 0x00001694
         protected override void OnCanUseChanged(DataContext context, DataUid dataUid)
         {
             base.SetConstAffecting(context, base.CanAffect);
-            DomainManager.SpecialEffect.InvalidateCache(context, this.CharacterId, 211);
+            DomainManager.SpecialEffect.InvalidateCache(context, base.CharacterId, 211);
         }
-
-        // Token: 0x0600002A RID: 42 RVA: 0x000034BC File Offset: 0x000016BC
         public override bool GetModifiedValue(AffectedDataKey dataKey, bool dataValue)
         {
             bool flag = dataKey.CharId != this.CharacterId || !base.CanAffect;
@@ -88,7 +78,7 @@ namespace TaiwuBossMod_Backend.Passives
             }
             else
             {
-                bool flag3 = dataKey.FieldId == 147 || dataKey.FieldId == 142;
+                bool flag3 = dataKey.FieldId == 142 || dataKey.FieldId == 137;
                 result = (!flag3 && dataValue);
             }
             return result;
@@ -97,33 +87,22 @@ namespace TaiwuBossMod_Backend.Passives
         // Token: 0x0600002B RID: 43 RVA: 0x00003548 File Offset: 0x00001748
         public override int GetModifyValue(AffectedDataKey dataKey, int currModifyValue)
         {
-            bool flag = dataKey.CharId != this.CharacterId || !base.CanAffect;
-            bool flag2 = flag;
+            bool flag = dataKey.CharId != base.CharacterId || !base.CanAffect;
             int result;
-            if (flag2)
+            if (flag)
             {
                 result = 0;
             }
             else
             {
-                bool flag3 = dataKey.FieldId == 211;
-                bool flag4 = flag3;
-                if (flag4)
+                bool flag2 = dataKey.FieldId == 211;
+                if (flag2)
                 {
                     result = this._addPower;
                 }
                 else
                 {
-                    bool flag5 = dataKey.FieldId == 110;
-                    bool flag6 = flag5;
-                    if (flag6)
-                    {
-                        result = -20;
-                    }
-                    else
-                    {
-                        result = 0;
-                    }
+                    result = 0;
                 }
             }
             return result;
