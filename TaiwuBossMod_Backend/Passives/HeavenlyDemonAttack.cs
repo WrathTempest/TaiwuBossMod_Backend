@@ -25,6 +25,7 @@ namespace TaiwuBossMod_Backend.Passives
         // Token: 0x06000030 RID: 48 RVA: 0x00003626 File Offset: 0x00001826
         public override void OnEnable(DataContext context)
         {
+
             this._registeredStateMachineUpdateEnd = false;
             Events.RegisterHandler_PrepareSkillEnd(new Events.OnPrepareSkillEnd(this.OnPrepareSkillEnd));
             Events.RegisterHandler_CastSkillEnd(new Events.OnCastSkillEnd(this.OnCastSkillEnd));

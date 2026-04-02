@@ -13,9 +13,16 @@ using GameData.Domains.Item;
 using GameData.Domains.Map;
 using GameData.Domains.SpecialEffect;
 using GameData.Domains.SpecialEffect.CombatSkill.XiangShu.Agile;
+using GameData.Domains.SpecialEffect.CombatSkill.XiangShu.Attack.HuanXin;
+using GameData.Domains.SpecialEffect.CombatSkill.XiangShu.Attack.ShuFang;
+using GameData.Domains.SpecialEffect.CombatSkill.XiangShu.Attack.WeiQi;
+using GameData.Domains.SpecialEffect.CombatSkill.XiangShu.Attack.XiangShu;
+using GameData.Domains.SpecialEffect.CombatSkill.XiangShu.Attack.XueFeng;
+using GameData.Domains.SpecialEffect.CombatSkill.XiangShu.Attack.YiXiang;
 using GameData.Domains.SpecialEffect.CombatSkill.XiangShu.Defense;
 using GameData.Domains.SpecialEffect.CombatSkill.XiangShu.Neigong.Boss;
 using GameData.Domains.SpecialEffect.CombatSkill.XiangShu.Neigong.RandomEnemy;
+using GameData.Domains.SpecialEffect.LegendaryBook.Leg;
 using GameData.Domains.World;
 using GameData.Utilities;
 using HarmonyLib;
@@ -47,7 +54,7 @@ namespace TaiwuBossMod_Backend
 
         public static Dictionary<string, object> ModConfigData;
 
-        private static Dictionary<string, List<Type>> CustomEffectDict = new Dictionary<string, List<Type>>();
+        private static List<CustomEffect> CustomEffectDict = new List<CustomEffect>();
 
         public static int TaiwuID;
         public static int Taiwu_Template;
@@ -64,8 +71,9 @@ namespace TaiwuBossMod_Backend
             pluginDir = DomainManager.Mod.GetModDirectory(base.ModIdStr);
             this.harmony = Harmony.CreateAndPatchAll(typeof(BossPlugin), null);
             ModConfigData = DataFileHandler.LoadAllJsons();
-            InitializeModData();
             MergeModData();
+            InitializeModData();
+            
         }
         public override void OnModSettingUpdate()
         {
@@ -148,23 +156,26 @@ namespace TaiwuBossMod_Backend
                 }
             }
 
-
-            CustomEffectDict.Add("HeavenlyDemonAttack", new List<Type>
+            CustomEffectDict.Add(new CustomEffect("HeavenlyDemonAttack", new List<Type>
             {
-                typeof(HeavenlyDemonAttack)
-            });
-            CustomEffectDict.Add("HeavenlyDemonAssist", new List<Type>
+                typeof(HeavenlyDemonAttack),
+                typeof(HunHuaWuHun),
+                typeof(ZhanWuShu),
+                typeof(ChaiRen),
+                typeof(XieWangWuZheng)
+            }));
+            CustomEffectDict.Add(new CustomEffect("HeavenlyDemonAssist", new List<Type>
             {
                 typeof(HeavenlyDemonAssist)
-            });
-
-            CustomEffectDict.Add("HeavenlyDemonDefense", new List<Type>
+            }));
+            CustomEffectDict.Add(new CustomEffect("HeavenlyDemonDefense", new List<Type>
             {
                 typeof(SanYuanJiuDunTianDiBian), //heal random defeat markers
                 typeof(XuanYuJueShen), //apply random debuffs to enemy
-                typeof(XiTuShiLing) //steal true qi when hit
-            });
-            CustomEffectDict.Add("HeavenlyDemonAgile", new List<Type>
+                typeof(XiTuShiLing), //steal true qi when hit
+                typeof(JiuBao) //after skill redistribute injuries
+            }));
+            CustomEffectDict.Add(new CustomEffect("HeavenlyDemonAgile", new List<Type>
             {
                 typeof(HeavenlyDemonAgile),
                 typeof(XieNiWuSheng),
@@ -172,17 +183,22 @@ namespace TaiwuBossMod_Backend
                 typeof(YiFeiYan),
                 typeof(ChenRan),
                 typeof(BaiLongQianYuan)
-
-            });
-            CustomEffectDict.Add("HeavenlyDemonNeigong", new List<Type>
+            }));
+            CustomEffectDict.Add(new CustomEffect("HeavenlyDemonNeigong", new List<Type>
             {
                 typeof(HeavenlyDemonNeigong),
                 typeof(XuanYuJiuLao), //steal enemy qi on damage them
                 typeof(HuanMu),
+                typeof(BaiXie),
                 typeof(YaoXinShiXian),
                 typeof(DuoXinJiuBuZhong),
-                typeof(ZhongXiangSheng)
-            });
+                typeof(ZhongXiangSheng),
+                typeof(ShenNvHuanJian), //MoNyu second phase
+                typeof(QiHanLingQi), //reduce inhale/stance recovery in attack range
+                typeof(RongChenHuaYu),
+                typeof(FuJunYouYu),
+                typeof(QingGuoJueShi)
+            }));
         }
 
 
@@ -237,8 +253,6 @@ namespace TaiwuBossMod_Backend
             if (!hasTriggerSkill) return;
 
             var featureIds = taiwu.GetFeatureIds();
-            var inventory = taiwu.GetInventory();
-            var equipment = taiwu.GetEquipment();
 
             // =========================
             // Remove negative features
@@ -256,29 +270,7 @@ namespace TaiwuBossMod_Backend
                 }
             }
 
-            List<WeaponItem> weapons = new List<WeaponItem>();
-
-            if (ModConfigData["WeaponItem"] != null)
-            {
-                weapons = DataFileHandler.ConvertToTypedList<WeaponItem>(ModConfigData["WeaponItem"]);
-            }
-            if (weapons.Count > 0)
-            {
-                int id = weapons[0].TemplateId;
-                bool hasItem = equipment.Any(item => item.TemplateId == id) || inventory.Items.Any(pair => pair.Key.TemplateId == id);
-
-                // =========================
-                // Give items if missing
-                // =========================
-                if (!hasItem)
-                {
-                    foreach (WeaponItem item in weapons)
-                    {
-                        var weapon = DomainManager.Item.CreateWeapon(context, item.TemplateId, 1);
-                        taiwu.AddInventoryItem(context, weapon, 1);
-                    }
-                }
-            }
+            
             // =========================
             // Teach new skills
             // =========================
@@ -297,6 +289,8 @@ namespace TaiwuBossMod_Backend
             Helpers.EquipAttackSkillList(__instance, context, attackSkills);
             LearnBossSkills(__instance, context);
 
+            //redistribute so that the elements are in harmony
+            taiwu.SetBaseNeiliProportionOfFiveElements(new NeiliProportionOfFiveElements(20, 20, 20, 20, 20), context);
 
         }
 
@@ -312,24 +306,14 @@ namespace TaiwuBossMod_Backend
         public static bool CustomEffectPatch(SpecialEffectDomain __instance, int charId, short skillTemplateId, sbyte effectActiveType, sbyte direction, DataContext context)
         {
             bool specialEffectPatch = SpecialEffectPatch;
-            if (true)
+
+            CombatSkillItem combatSkillItem = Config.CombatSkill.Instance[skillTemplateId];
+            SpecialEffectItem specialEffectItem = SpecialEffect.Instance[(short)combatSkillItem.ReverseEffectID];
+            foreach (CustomEffect effect in CustomEffectDict)
             {
-                GameData.Domains.Character.Character taiwu = DomainManager.Taiwu.GetTaiwu();
-                if (taiwu == null)
+                if (specialEffectItem.ClassName == effect.ClassName)
                 {
-                    return true;
-                }
-                bool flag = charId == taiwu.GetId();
-                if (flag)
-                {
-                    CombatSkillItem combatSkillItem = Config.CombatSkill.Instance[skillTemplateId];
-                    SpecialEffectItem specialEffectItem = SpecialEffect.Instance[(short)combatSkillItem.ReverseEffectID];
-                    if (CustomEffectDict.ContainsKey(specialEffectItem.ClassName))
-                    {
-                        //do nothing, the special effect is done via the InitSkill patch
-                        return false;
-                    }
-                    return true;
+                    return false;
                 }
             }
             return true;
@@ -475,34 +459,59 @@ namespace TaiwuBossMod_Backend
         }
 
 
-        [HarmonyPatch(typeof(CombatCharacter), "Init")]
-        [HarmonyPrefix]
-        public static void InitCombatCharacter(CombatCharacter __instance, CombatDomain combatDomain, int characterId, DataContext context)
-        {
-            UpdatePlayerChar();
-            MergeModData();
-            if (EnableBoss)
-            {
-                AppendCharId2BossId();
+        
 
-                GameData.Domains.Character.Character combatChar = DomainManager.Character.GetElement_Objects(characterId);
-                GameData.Domains.Character.Character taiwu = DomainManager.Taiwu.GetTaiwu();
-                if (taiwu.GetId() != combatChar.GetId()) return;
-                BossItem bossConfig = Boss.Instance[CombatDomain.CharId2BossId[__instance.GetCharacter().GetTemplateId()]];
-                if (bossConfig == null) return;
-                List<short> bossSkills = bossConfig.PhaseAttackSkills[0].ToList();
-                Helpers.LearnSkillList(__instance, context, bossSkills);
+
+        //patch for defense skills
+        [HarmonyPatch(typeof(CombatDomain), "ApplyAgileOrDefenseSkill")]
+        [HarmonyPrefix]
+
+        public static void ApplyDefenseEffect(CombatDomain __instance, CombatCharacter character, CombatSkillItem skillConfig)
+        {
+            if (character.GetId() != TaiwuID) return;
+            if (!character.IsAlly) return;
+            if (skillConfig.EquipType != 3) return;
+            short skillTemplateId = skillConfig.TemplateId;
+            DataContext context = __instance.Context;
+            short charId = (short)TaiwuID;
+            CombatSkillKey skillKey = new CombatSkillKey(charId, skillTemplateId);
+            if (!__instance.CombatSkillDataExist(skillKey) && skillTemplateId > 0)
+            {
+                CombatSkillData skillData = new CombatSkillData(skillKey);
+                Helpers.Call(__instance, "AddElement_SkillDataDict", skillKey, skillData);
+                skillData.SetLeftCdFrame(0, context);
+            }
+            if (DomainManager.SpecialEffect != null)
+            {
+                CombatSkillItem combatSkillItem = Config.CombatSkill.Instance[skillTemplateId];
+                SpecialEffectItem specialEffectItem = SpecialEffect.Instance[(short)combatSkillItem.ReverseEffectID];
+                foreach (CustomEffect effect in CustomEffectDict)
+                {
+                    if (specialEffectItem.ClassName == effect.ClassName)
+                    {
+                        foreach (var kv in effect.Effects)
+                        {
+                            if (SpecialEffect.Instance[kv.Key].EffectActiveType == 0)
+                            {
+                                Helpers.ApplySpecialEffect(DomainManager.SpecialEffect, context, skillKey, kv.Value, 0);
+                            }
+                        }
+                        break;
+                    }
+                }
             }
 
-            //DomainManager.Taiwu.UpdateCombatSkillPlan(context, 0);
         }
+        
 
+        //need patch for agile skills
         [HarmonyPatch(typeof(CombatCharacter), "OnFrameBegin")]
         [HarmonyPrefix]
         public static void AddSpecialEffect(CombatCharacter __instance)
         {
             //this is a custom function for agile skills with custom class to work!
             if (__instance.GetId() != TaiwuID) return;
+            if (!__instance.IsAlly) return;
             if (__instance.NeedAddEffectAgileSkillId <= 0) return; //currently for agile skills only!
             short skillTemplateId = __instance.NeedAddEffectAgileSkillId;
             if (Config.CombatSkill.Instance[skillTemplateId] != null)
@@ -521,12 +530,18 @@ namespace TaiwuBossMod_Backend
                 {
                     CombatSkillItem combatSkillItem = Config.CombatSkill.Instance[skillTemplateId];
                     SpecialEffectItem specialEffectItem = SpecialEffect.Instance[(short)combatSkillItem.ReverseEffectID];
-                    //only add effects of agile skills
-                    if (CustomEffectDict.ContainsKey(specialEffectItem.ClassName) && combatSkillItem.EquipType == 2)
+                    foreach (CustomEffect effect in CustomEffectDict)
                     {
-                        foreach (Type specialEffectType in CustomEffectDict[specialEffectItem.ClassName])
+                        if (specialEffectItem.ClassName == effect.ClassName)
                         {
-                            Helpers.ApplySpecialEffect(DomainManager.SpecialEffect, context, skillKey, specialEffectType, specialEffectItem.EffectActiveType);
+                            foreach (var kv in effect.Effects)
+                            {
+                                if (combatSkillItem.EquipType == 2)
+                                {
+                                    Helpers.ApplySpecialEffect(DomainManager.SpecialEffect, context, skillKey, kv.Value, SpecialEffect.Instance[kv.Key].EffectActiveType);
+                                }
+                            }
+                            break;
                         }
                     }
                     __instance.NeedAddEffectAgileSkillId = -1;
@@ -535,6 +550,53 @@ namespace TaiwuBossMod_Backend
             }
 
 
+        }
+        [HarmonyPatch(typeof(CombatCharacterStatePrepareSkill), "OnEnter")]
+        [HarmonyPrefix]
+        public static void AddSpecialEffect(CombatCharacterStatePrepareSkill __instance)
+        {
+            CombatCharacter combatChar = Helpers.GetPrivateField<CombatCharacter>(__instance, "CombatChar");
+            if (!combatChar.IsAlly) return;
+            if (combatChar == null) return;
+            short charId = (short)combatChar.GetId();
+            DataContext context = combatChar.GetDataContext();
+            if (charId != TaiwuID) return;
+            short skillTemplateId = (combatChar.NeedUseSkillFreeId >= 0 ? combatChar.NeedUseSkillFreeId : combatChar.NeedUseSkillId);
+            if (skillTemplateId >= 0)
+            {
+                CombatSkillKey skillKey = new CombatSkillKey(charId, skillTemplateId);
+                if (!DomainManager.Combat.CombatSkillDataExist(skillKey) && skillTemplateId > 0)
+                {
+                    CombatSkillData skillData = new CombatSkillData(skillKey);
+                    Helpers.Call(DomainManager.Combat, "AddElement_SkillDataDict", skillKey, skillData);
+                    skillData.SetLeftCdFrame(0, context);
+                }
+                if (DomainManager.SpecialEffect != null)
+                {
+                    if (Config.CombatSkill.Instance[skillTemplateId] != null)
+                    {
+                        CombatSkillItem combatSkillItem = Config.CombatSkill.Instance[skillTemplateId];
+                        SpecialEffectItem specialEffectItem = SpecialEffect.Instance[(short)combatSkillItem.ReverseEffectID];
+                        foreach (CustomEffect effect in CustomEffectDict)
+                        {
+                            if (specialEffectItem.ClassName == effect.ClassName)
+                            {
+                                foreach (var kv in effect.Effects)
+                                {
+                                    if (SpecialEffect.Instance[kv.Key].EffectActiveType == 0 && combatSkillItem.EquipType != 2)
+                                    {
+                                        Helpers.ApplySpecialEffect(DomainManager.SpecialEffect, context, skillKey, kv.Value, 0);
+                                    }
+                                }
+                                break;
+                            }
+                        }
+
+                    }
+
+                }
+
+            }
         }
 
 
@@ -555,7 +617,7 @@ namespace TaiwuBossMod_Backend
         public static void InitSkill(CombatCharacter __instance, CombatDomain combatDomain, int characterId, DataContext context)
         {
             if (__instance.GetId() != TaiwuID) return;
-
+            if (!__instance.IsAlly) return;
             //this emulates the EnableEnterCombatSkill() function of adding special effects
             GameData.Domains.Character.Character taiwu = __instance.GetCharacter();
             short charId = (short)TaiwuID;
@@ -574,14 +636,20 @@ namespace TaiwuBossMod_Backend
                     {
                         CombatSkillItem combatSkillItem = Config.CombatSkill.Instance[skillTemplateId];
                         SpecialEffectItem specialEffectItem = SpecialEffect.Instance[(short)combatSkillItem.ReverseEffectID];
-                        if (CustomEffectDict.ContainsKey(specialEffectItem.ClassName) && combatSkillItem.EquipType != 2)
+                        foreach (CustomEffect effect in CustomEffectDict)
                         {
-                            foreach (Type specialEffectType in CustomEffectDict[specialEffectItem.ClassName])
+                            if (specialEffectItem.ClassName == effect.ClassName)
                             {
-                                Helpers.ApplySpecialEffect(DomainManager.SpecialEffect, context, skillKey, specialEffectType, specialEffectItem.EffectActiveType);
+                                foreach(var kv in effect.Effects)
+                                {
+                                    if (SpecialEffect.Instance[kv.Key].EffectActiveType == 1 && combatSkillItem.EquipType != 2)
+                                    {
+                                        Helpers.ApplySpecialEffect(DomainManager.SpecialEffect, context, skillKey, kv.Value, 1);
+                                    }
+                                }
+                                break;
                             }
                         }
-
                     }
 
                 }
@@ -593,6 +661,27 @@ namespace TaiwuBossMod_Backend
             if (bossConfig == null) return;
             List<short> bossSkills = bossConfig.PhaseAttackSkills[0].ToList();
             Helpers.ReplaceAttackSkillList(__instance, context, bossSkills);
+        }
+
+        [HarmonyPatch(typeof(CombatCharacter), "Init")]
+        [HarmonyPrefix]
+        public static void InitCombatCharacter(CombatCharacter __instance, CombatDomain combatDomain, int characterId, DataContext context)
+        {
+            UpdatePlayerChar();
+            MergeModData();
+            if (characterId != TaiwuID) return;
+            GameData.Domains.Character.Character _character = DomainManager.Character.GetElement_Objects(characterId);
+            Helpers.RefreshModWeapons(_character, context);
+            if (EnableBoss)
+            {
+                AppendCharId2BossId();
+                BossItem bossConfig = Boss.Instance[CombatDomain.CharId2BossId[__instance.GetCharacter().GetTemplateId()]];
+                if (bossConfig == null) return;
+                List<short> bossSkills = bossConfig.PhaseAttackSkills[0].ToList();
+                Helpers.LearnSkillList(__instance, context, bossSkills);
+            }
+
+            //DomainManager.Taiwu.UpdateCombatSkillPlan(context, 0);
         }
 
         public static void AppendCharId2BossId()
@@ -630,13 +719,145 @@ namespace TaiwuBossMod_Backend
         }
         */
 
-        [HarmonyPatch(typeof(CombatCharacter), "SetAffectingMoveSkillId")]
+        [HarmonyPatch(typeof(Inventory), "GetTotalWeight")]
         [HarmonyPostfix]
-        public static void MoveSkillID(CombatCharacter __instance, short affectingMoveSkillId)
+        public static void MoveSkillID(Inventory __instance, ref int __result)
         {
-            if (DomainManager.Taiwu.GetTaiwu() == null) return;
-            if (TaiwuID != __instance.GetId()) return;
-            FileLogger.Info($"[SetAffectingMoveSkilId] MoveSkillId = {affectingMoveSkillId}");
+            if (!Helpers.HasCustomFeature()) return;
+            __result = 0;
+        }
+
+        [HarmonyPatch(typeof(CombatDomain), "GetDamageStepCollection")]
+        [HarmonyPostfix]
+        public static void BodyPartHealth(CombatDomain __instance, int charId, ref DamageStepCollection __result)
+        {
+            if (DomainManager.Taiwu.GetTaiwu == null) return;
+            if (charId != TaiwuID) return;
+            if (!Helpers.HasCustomFeature()) return;
+            for (int i = 0; __result.OuterDamageSteps.Length > i; i++)
+            {
+                __result.OuterDamageSteps[i] = (int)(__result.OuterDamageSteps[i] * 1.5);
+            }
+            for (int i = 0; __result.InnerDamageSteps.Length > i; i++)
+            {
+                __result.InnerDamageSteps[i] = (int)(__result.InnerDamageSteps[i] * 1.5);
+            }
+            __result.FatalDamageStep = 9999;
+            __result.MindDamageStep = (int)(__result.MindDamageStep * 1.5);
+        }
+
+        // patch needed for mirror battle
+        [HarmonyPatch(typeof(AiController), "Init")]
+        [HarmonyPrefix]
+        public static bool AI_Init(AiController __instance, DataContext context)
+        {
+            Helpers.Call(__instance, "InitHazard");
+            __instance.Environment.RegisterCallbacks();
+            __instance.Memory.RegisterCallbacks();
+
+            CombatCharacter combatCharacter = Helpers.GetPrivateField<CombatCharacter>(__instance, "_combatCharacter");
+
+            if (combatCharacter != null && __instance.IsCombatDifficultyLevel2)
+            {
+                List<short> selfLearnedSkills = combatCharacter.GetCharacter().GetLearnedCombatSkills();
+                int[] enemyTeam = combatCharacter.IsAlly
+                    ? DomainManager.Combat.GetEnemyTeam()
+                    : DomainManager.Combat.GetSelfTeam();
+
+                foreach (int enemyId in enemyTeam)
+                {
+                    if (enemyId < 0)
+                        continue;
+
+                    List<short> attackSkillList = DomainManager.Combat
+                        .GetElement_CombatCharacterDict(enemyId)
+                        .GetAttackSkillList();
+
+                    foreach (short skillId in attackSkillList)
+                    {
+                        if (!selfLearnedSkills.Contains(skillId))
+                            continue;
+
+                        var skillRecord = __instance.Memory.EnemyRecordDict[enemyId].SkillRecord;
+
+                        if (!skillRecord.ContainsKey(skillId))
+                        {
+                            skillRecord.Add(skillId, new ValueTuple<int, int>(400, 0));
+                        }
+                    }
+                }
+            }
+            MethodInfo method = AccessTools.Method(typeof(AiController), "OnCombatBegin");
+            var handler = (Events.OnCombatBegin)Delegate.CreateDelegate(
+                typeof(Events.OnCombatBegin),
+                __instance,
+                method
+            );
+
+            Events.RegisterHandler_CombatBegin(new Events.OnCombatBegin(handler));
+
+            return false;
+        }
+
+        [HarmonyPatch(typeof(GameData.Domains.CombatSkill.CombatSkill), "PowerMatchAffectRequire")]
+        [HarmonyPrefix]
+        public static bool PowerMatchAffectRequire_Patch(GameData.Domains.CombatSkill.CombatSkill __instance, ref bool __result, int power, int index)
+        {
+            int i = 0;
+            foreach (int requirePower in __instance.GetAffectRequirePower())
+            {
+                bool flag = i++ == index;
+                if (flag)
+                {
+                    return true;
+                }
+            }
+            __result = true;
+            return false;
+        }
+
+        [HarmonyPatch(typeof(CombatCharacterStateAttack), "StartAttack")]
+        [HarmonyPrefix]
+        public static void AttackPrepareAniPatch3(CombatCharacterStateAttack __instance)
+        {
+            CombatCharacter CombatChar = Helpers.GetPrivateField<CombatCharacter>(__instance, "CombatChar");
+            if (CombatChar.GetId() != TaiwuID) return;
+            sbyte _trickType = Helpers.GetPrivateField<sbyte>(__instance, "_trickType");
+            if (_trickType == 21)
+            {
+                TrickTypeItem trick = Config.TrickType.Instance[_trickType];
+                Helpers.SetPrivateField<sbyte[]>(trick, "AttackDistance", Config.TrickType.Instance[_currentTrick].AttackDistance);
+            }
+        }
+
+        [HarmonyPatch(typeof(CombatDomain), "GetPrepareAttackAni")]
+        [HarmonyPrefix]
+        public static void AttackPrepareAniPatch(CombatCharacter character, ref sbyte trickType)
+        {
+            if (character.GetId() == TaiwuID)
+            {
+                List<sbyte> tricks = new List<sbyte>() { 3, 4, 5, 9, 10, 11, 12 };
+                if (trickType == 21)
+                {
+                    Random rng = new Random();
+                    int idx = rng.Next(0, tricks.Count());
+                    trickType = tricks[idx];
+                    _currentTrick = trickType;
+                }
+            }
+
+        }
+
+        private static sbyte _currentTrick;
+
+        [HarmonyPatch(typeof(CombatDomain), "GetAttackEffect")]
+        [HarmonyPrefix]
+        public static void AttackPrepareAniPatch2(CombatCharacter character, ref sbyte trickType)
+        {
+            if (character.GetId() == TaiwuID)
+            {
+                trickType = _currentTrick;
+            }
         }
 
         public static void LearnBossSkills(CombatCharacter character, DataContext context)
@@ -648,7 +869,14 @@ namespace TaiwuBossMod_Backend
             for (int i = 0; i < Config.Boss.Instance.Count; i++)
             {
                 BossItem bossConfig = Boss.Instance[i];
-                bossSkills.AddRange(bossConfig.PlayerCastSkills);
+                foreach (short skill in bossConfig.PlayerCastSkills)
+                {
+                    if (bossConfig.PhaseAttackSkills[1].Contains(skill))
+                    {
+                        bossSkills.Add(skill);
+                    }
+                    
+                }         
             }
             Helpers.LearnSkillList(character, context, bossSkills);
         }

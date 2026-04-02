@@ -3,7 +3,9 @@ using GameData.Common;
 using GameData.Domains;
 using GameData.Domains.Character;
 using GameData.Domains.Combat;
+using GameData.Domains.Combat.Ai;
 using GameData.Domains.CombatSkill;
+using GameData.Domains.Item;
 using GameData.Domains.SpecialEffect;
 using HarmonyLib;
 using System;
@@ -23,6 +25,60 @@ namespace TaiwuBossMod_Backend.Utils
 {
     internal class Helpers
     {
+        public static void RefreshModWeapons(GameData.Domains.Character.Character character, DataContext context)
+        {
+            var equipment = character.GetEquipment();
+            var inventory = character.GetInventory();
+            List<WeaponItem> weapons = new List<WeaponItem>();
+            sbyte[] weaponSlots = EquipmentSlot.EquipmentType2Slots[0];
+
+            if (BossPlugin.ModConfigData["WeaponItem"] != null)
+            {
+                weapons = DataFileHandler.ConvertToTypedList<WeaponItem>(BossPlugin.ModConfigData["WeaponItem"]);
+            }
+            int modWeaponCount = weapons.Count() > 3 ? 3 : weapons.Count();
+            if (weapons.Count > 0)
+            {
+                int id = weapons[0].TemplateId;
+                bool hasItem = equipment.Any(item => item.TemplateId == id) || inventory.Items.Any(pair => pair.Key.TemplateId == id);
+
+                // =========================
+                // remove and re-equip mod weapons
+                // =========================
+
+                for (int i = 0; i < weaponSlots.Length; i++)
+                {
+                    if (equipment[(int)weaponSlots[i]].IsValid())
+                    {
+                        //remove currently equipped equipment
+                        ItemKey weapon = equipment[(int)weaponSlots[i]];
+                        character.ChangeEquipment(context, weaponSlots[i], -1, ItemKey.Invalid);                    
+                        character.RemoveInventoryItem(context, weapon, 1, true);
+                    }
+                }
+                for (int i = 0; i < modWeaponCount; i++)
+                {
+                    ItemKey weapon = DomainManager.Item.CreateWeapon(context, weapons[i].TemplateId, 1);
+                    character.AddInventoryItem(context, weapon, 1);
+                    character.ChangeEquipment(context, -1, weaponSlots[i], weapon);
+                }
+
+            }
+        }
+        public static bool HasCustomFeature(GameData.Domains.Character.Character character)
+        {
+            if (DomainManager.Taiwu.GetTaiwu() == null) return false;
+            GameData.Domains.Character.Character taiwu = DomainManager.Taiwu.GetTaiwu();
+            List<short> featureIds = taiwu.GetFeatureIds();
+            if (BossPlugin.ModConfigData["CharacterFeatureItem"] == null) return false;
+            List<CharacterFeatureItem> modFeatures = DataFileHandler.ConvertToTypedList<CharacterFeatureItem>(BossPlugin.ModConfigData["CharacterFeatureItem"]);
+            List<short> modTemplates = GetTemplateIds<CharacterFeatureItem>(modFeatures);
+            foreach (short features in featureIds)
+            {
+                if (modTemplates.Contains(features)) return true;
+            }
+            return false;
+        }
         public static bool HasCustomFeature()
         {
             if (DomainManager.Taiwu.GetTaiwu() == null) return false;
@@ -119,7 +175,7 @@ namespace TaiwuBossMod_Backend.Utils
                     short num = skillList[i];
                     for (byte b = 1; b <= 5; b += 1)
                     {
-                        byte pageInternalIndex = CombatSkillStateHelper.GetPageInternalIndex(2, 1, b);
+                        byte pageInternalIndex = CombatSkillStateHelper.GetPageInternalIndex(2, 0, b);
                         readingState = CombatSkillStateHelper.SetPageRead(readingState, pageInternalIndex);
                         activationState = CombatSkillStateHelper.SetPageActive(activationState, pageInternalIndex);
                     }

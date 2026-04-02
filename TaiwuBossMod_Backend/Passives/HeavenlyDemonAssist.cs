@@ -47,6 +47,7 @@ namespace TaiwuBossMod_Backend.Passives
             this.AffectDatas.Add(new AffectedDataKey(base.CharacterId, 159, -1, -1, -1, -1), EDataModifyType.Custom);
             this.AffectDatas.Add(new AffectedDataKey(base.CharacterId, 229, -1, -1, -1, -1), EDataModifyType.Custom);
             this.AffectDatas.Add(new AffectedDataKey(base.CharacterId, 227, -1, -1, -1, -1), EDataModifyType.Custom);
+            this.AffectDatas.Add(new AffectedDataKey(base.CharacterId, 93, -1, -1, -1, -1), EDataModifyType.Custom);
         }
 
         // Token: 0x06000027 RID: 39 RVA: 0x000033BD File Offset: 0x000015BD
@@ -78,7 +79,7 @@ namespace TaiwuBossMod_Backend.Passives
             }
             else
             {
-                bool flag3 = dataKey.FieldId == 142 || dataKey.FieldId == 137;
+                bool flag3 = dataKey.FieldId == 142 || dataKey.FieldId == 137 || dataKey.FieldId == 159 || dataKey.FieldId == 229 || dataKey.FieldId == 227 || dataKey.FieldId == 93;
                 result = (!flag3 && dataValue);
             }
             return result;
