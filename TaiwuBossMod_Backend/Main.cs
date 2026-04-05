@@ -30,10 +30,10 @@ using NLog;
 using System.Data;
 using System.Diagnostics;
 using System.Reflection;
+using System.Security.Cryptography;
 using TaiwuBossMod;
 using TaiwuBossMod_Backend.Passives;
 using TaiwuBossMod_Backend.Utils;
-using TaiwuBossMod_Frontend.Utils;
 using TaiwuModdingLib.Core.Plugin;
 
 
@@ -48,11 +48,18 @@ namespace TaiwuBossMod_Backend
         public static readonly NLog.Logger BackendLogger = LogManager.GetLogger("TaiwuBossMod");
         public static string pluginDir;
 
-        public static bool EnableBoss = false;
-        public static bool CustomFeatures = false;
-        public static bool SpecialEffectPatch = false;
 
-        public static Dictionary<string, object> ModConfigData;
+        public static int SectRef = 1;
+        public static int BossID = 14;
+        public static bool RemoveNegFeatures = false;
+        public static bool LearnBossSkills = false;
+        public static bool SetHarmony = false;
+        public static bool FreeSkills = false;
+        public static bool NoWeight = false;
+        public static bool CustomWeapon = false;
+        public static bool HealthBuff = false;
+        public static bool ModifyRatio = false;
+        public static int InnerRatio = 50;
 
         private static List<CustomEffect> CustomEffectDict = new List<CustomEffect>();
 
@@ -61,7 +68,7 @@ namespace TaiwuBossMod_Backend
         public static int featureConfigCount;
 
         private static List<short> NewSkillList = new List<short>();
-        
+
 
         public override void Initialize()
         {
@@ -70,17 +77,50 @@ namespace TaiwuBossMod_Backend
             FileLogger.Info("Backend loaded");
             pluginDir = DomainManager.Mod.GetModDirectory(base.ModIdStr);
             this.harmony = Harmony.CreateAndPatchAll(typeof(BossPlugin), null);
-            ModConfigData = DataFileHandler.LoadAllJsons();
             MergeModData();
             InitializeModData();
-            
+
+
+        }
+
+        private static void DumpSectIds()
+        {
+            Dictionary<sbyte, string> sectDict = new Dictionary<sbyte, string>();
+            foreach (CombatSkillItem skill in Config.CombatSkill.Instance)
+            {
+                sbyte sectID = skill.SectId;
+                foreach (OrganizationItem org in Config.Organization.Instance)
+                {
+                    if (sectID == org.TemplateId && !sectDict.ContainsKey(org.TemplateId))
+                    {
+                        sectDict.TryAdd(sectID, org.Name);
+                    }
+                }
+            }
+            foreach (var kv in sectDict)
+            {
+                FileLogger.Info($"Sect ID: {kv.Key}, Sect Name: {kv.Value}");
+            }
         }
         public override void OnModSettingUpdate()
         {
-            BackendLogger.Info("Setting Updated!");
-            DomainManager.Mod.GetSetting(base.ModIdStr, "EnableBoss", ref BossPlugin.EnableBoss);
-            DomainManager.Mod.GetSetting(base.ModIdStr, "CustomFeatures", ref BossPlugin.CustomFeatures);
-            DomainManager.Mod.GetSetting(base.ModIdStr, "SpecialEffectPatch", ref BossPlugin.SpecialEffectPatch);
+            DomainManager.Mod.GetSetting(base.ModIdStr, "SectRef", ref SectRef);
+            DomainManager.Mod.GetSetting(base.ModIdStr, "BossID", ref BossID);
+            DomainManager.Mod.GetSetting(base.ModIdStr, "RemoveNegFeatures", ref RemoveNegFeatures);
+            DomainManager.Mod.GetSetting(base.ModIdStr, "LearnBossSkills", ref LearnBossSkills);
+            DomainManager.Mod.GetSetting(base.ModIdStr, "SetHarmony", ref SetHarmony);
+            DomainManager.Mod.GetSetting(base.ModIdStr, "FreeSkills", ref FreeSkills);
+            DomainManager.Mod.GetSetting(base.ModIdStr, "NoWeight", ref NoWeight);
+            DomainManager.Mod.GetSetting(base.ModIdStr, "CustomWeapon", ref CustomWeapon);
+            DomainManager.Mod.GetSetting(base.ModIdStr, "HealthBuff", ref HealthBuff);
+            DomainManager.Mod.GetSetting(base.ModIdStr, "ModifyRatio", ref ModifyRatio);
+            DomainManager.Mod.GetSetting(base.ModIdStr, "InnerRatio", ref InnerRatio);
+            if (BossID >= 14 || BossID == 10)
+            {
+                BossID = -1;
+            }
+            FileLogger.Info($"Current Sect ID:{SectRef}");
+            //DumpSectIds();
         }
         public override void Dispose()
         {
@@ -120,26 +160,6 @@ namespace TaiwuBossMod_Backend
             }
             TaiwuID = taiwu.GetId();
             Taiwu_Template = taiwu.GetTemplateId();
-            if (EnableBoss)
-            {
-                //UpdateBossItems();
-            }
-        }
-
-        //Obsolete for now, just change Taiwu's template ID on one of the existing Bosses and use their BossItem entry instead.
-        public static void UpdateBossItems()
-        {
-            if (ModConfigData["BossItem"] == null) return;
-            List<BossItem> bossitem = DataFileHandler.ConvertToTypedList<BossItem>(ModConfigData["BossItem"]);
-            if (bossitem.Count <= 0) return;
-            BossItem playerBoss = Boss.Instance[bossitem[0].TemplateId]; //only updates the first entry in BossItem
-            if (playerBoss == null) return;
-            short[] ids = { (short)Taiwu_Template };
-            Helpers.SetPrivateField<short[]>(playerBoss, "CharacterIdList", ids);
-            foreach (short id in playerBoss.CharacterIdList)
-            {
-                FileLogger.Info($"Boss Template ID: {playerBoss.TemplateId}, Character ID: {id}");
-            }
         }
 
         public static void InitializeModData()
@@ -147,20 +167,15 @@ namespace TaiwuBossMod_Backend
             CustomEffectDict.Clear();
             NewSkillList.Clear();
 
-            if (ModConfigData["CombatSkillItem"] != null)
+            List<CombatSkillItem> modSkills = ModConfigData.GetModConfigData<CombatSkillItem>("CombatSkillItem");
+            foreach (CombatSkillItem skill in modSkills)
             {
-                List<CombatSkillItem> modSkills = DataFileHandler.ConvertToTypedList<CombatSkillItem>(ModConfigData["CombatSkillItem"]);
-                foreach (CombatSkillItem skill in modSkills)
-                {
-                    NewSkillList.Add(skill.TemplateId);
-                }
+                NewSkillList.Add(skill.TemplateId);
             }
 
             CustomEffectDict.Add(new CustomEffect("HeavenlyDemonAttack", new List<Type>
             {
                 typeof(HeavenlyDemonAttack),
-                typeof(HunHuaWuHun),
-                typeof(ZhanWuShu),
                 typeof(ChaiRen),
                 typeof(XieWangWuZheng)
             }));
@@ -208,9 +223,7 @@ namespace TaiwuBossMod_Backend
             List<short> _featureIds = Helpers.GetPrivateField<List<short>>(hero, "_featureIds");
             featureConfigCount = instance.Count;
             MergeModData();
-            if (ModConfigData == null) return;
-            if (ModConfigData["CharacterFeatureItem"] == null) return;
-            List<CharacterFeatureItem> features = DataFileHandler.ConvertToTypedList<CharacterFeatureItem>(ModConfigData["CharacterFeatureItem"]);
+            List<CharacterFeatureItem> features = ModConfigData.GetModConfigData<CharacterFeatureItem>("CharacterFeatureItem");
 
             if (featureConfigCount <= features[0].TemplateId)
             {
@@ -231,7 +244,6 @@ namespace TaiwuBossMod_Backend
         [HarmonyPrefix]
         public static bool GiveFeatures(GameData.Domains.Character.Character __instance, short protagonistFeatureId)
         {
-            BackendLogger.Warn("In test");
             if (protagonistFeatureId <= 29) return true;
             if (protagonistFeatureId == 30)
             {
@@ -240,59 +252,7 @@ namespace TaiwuBossMod_Backend
             return false;
         }
 
-        [HarmonyPatch(typeof(CombatCharacter), "EnableEnterCombatSkillEffect")]
-        [HarmonyPostfix]
-        public static void SetupTaiwu(CombatCharacter __instance, DataContext context, IEnumerable<short> skillListInCombat)
-        {
-            GameData.Domains.Character.Character taiwu = DomainManager.Taiwu.GetTaiwu();
-            if (taiwu == null || __instance.GetId() != taiwu.GetId())
-                return;
-
-            // Check if the trigger skill (724), modified energizing practice neigong
-            bool hasTriggerSkill = skillListInCombat.Any(skill => skill == 724);
-            if (!hasTriggerSkill) return;
-
-            var featureIds = taiwu.GetFeatureIds();
-
-            // =========================
-            // Remove negative features
-            // =========================
-            if (Helpers.HasCustomFeature())
-            {
-                // Remove invalid features (Level < 0)
-                foreach (var featureId in featureIds.ToList())
-                {
-                    var feature = CharacterFeature.Instance[featureId];
-                    if (feature.Level < 0)
-                    {
-                        DomainManager.Character.GmCmd_RemoveFeature(context, taiwu.GetId(), featureId);
-                    }
-                }
-            }
-
-            
-            // =========================
-            // Teach new skills
-            // =========================
-
-            Helpers.LearnSkillList(__instance, context, NewSkillList);
-            List<short> attackSkills = new List<short>();
-            foreach (short skill in NewSkillList)
-            {
-                CombatSkillItem SkillConfig = Config.CombatSkill.Instance[skill];
-                if (SkillConfig.EquipType == 1)
-                {
-                    attackSkills.Add(skill);
-                }
-
-            }
-            Helpers.EquipAttackSkillList(__instance, context, attackSkills);
-            LearnBossSkills(__instance, context);
-
-            //redistribute so that the elements are in harmony
-            taiwu.SetBaseNeiliProportionOfFiveElements(new NeiliProportionOfFiveElements(20, 20, 20, 20, 20), context);
-
-        }
+        
 
         [HarmonyPatch(typeof(SpecialEffectDomain), "Add", new Type[]
         {
@@ -305,7 +265,6 @@ namespace TaiwuBossMod_Backend
         [HarmonyPrefix]
         public static bool CustomEffectPatch(SpecialEffectDomain __instance, int charId, short skillTemplateId, sbyte effectActiveType, sbyte direction, DataContext context)
         {
-            bool specialEffectPatch = SpecialEffectPatch;
 
             CombatSkillItem combatSkillItem = Config.CombatSkill.Instance[skillTemplateId];
             SpecialEffectItem specialEffectItem = SpecialEffect.Instance[(short)combatSkillItem.ReverseEffectID];
@@ -324,18 +283,24 @@ namespace TaiwuBossMod_Backend
         public static bool PlayerBossPhase(BossNeigongBase __instance, DataContext context, CombatCharacter combatChar)
         {
             GameData.Domains.Character.Character taiwu = DomainManager.Taiwu.GetTaiwu();
-            bool flag = CombatDomain.CharId2BossId.ContainsKey(taiwu.GetTemplateId());
-            bool flag2 = taiwu.GetId() == combatChar.GetId() && !flag;
             bool result;
-            if (flag2)
+            if (taiwu.GetId() == combatChar.GetId())
             {
                 bool flag3 = combatChar.OuterInjuryAutoHealSpeeds.Max<short>() != 1;
                 if (flag3)
                 {
-                    DomainManager.Combat.Reset(context, combatChar);
-                    DomainManager.Combat.ShowSpecialEffectTips(combatChar.GetId(), __instance.EffectId, 0);
+                    DomainManager.Combat.Reset(context, combatChar);               
                     combatChar.ChangeBossPhaseEffectId = __instance.EffectId;
+                    DomainManager.Combat.ShowSpecialEffectTips(combatChar.GetId(), __instance.EffectId, 0);
+                    combatChar.SetXiangshuEffectId((short)__instance.EffectId, context);
+                    combatChar.SetMindMarkInfinityCount(0, context);
+                    combatChar.SetMindMarkInfinityProgress(0, context);
+                    combatChar.SetHazardValue(0, context);
+                    combatChar.GetCharacter().SetHealth(combatChar.GetCharacter().GetLeftMaxHealth(false), context);
+                    combatChar.GetCharacter().SetDisorderOfQi(combatChar.GetOldDisorderOfQi(), context);
+                    combatChar.SetMixPoisonAffectedCount(combatChar.GetMixPoisonAffectedCount().Clear(), context);
                     Events.RaiseChangeBossPhase(context);
+
                     Helpers.Call(__instance, "ActivePhase2Effect", context);
                     result = false;
                 }
@@ -372,7 +337,7 @@ namespace TaiwuBossMod_Backend
         public static void RemoveSkillCost(CombatCharacter character, ref bool __result)
         {
             if (character.GetId() != TaiwuID) return;
-            if (!Helpers.HasCustomFeature()) return;
+            if (!FreeSkills) return;
             __result = true;
         }
 
@@ -381,7 +346,7 @@ namespace TaiwuBossMod_Backend
         public static void RemoveWeaponTrickCost(CombatCharacter character, ref bool __result)
         {
             if (character.GetId() != TaiwuID) return;
-            if (!Helpers.HasCustomFeature()) return;
+            if (!FreeSkills) return;
             __result = true;
         }
 
@@ -390,7 +355,7 @@ namespace TaiwuBossMod_Backend
         public static void RemoveTrickCost(CombatCharacter character, ref bool __result)
         {
             if (character.GetId() != TaiwuID) return;
-            if (!Helpers.HasCustomFeature()) return;
+            if (!FreeSkills) return;
             __result = true;
         }
 
@@ -411,11 +376,10 @@ namespace TaiwuBossMod_Backend
         {
             MergeModData();
             if (DomainManager.Taiwu.GetTaiwu() != null) return;
-            if (ModConfigData["CharacterItem"] == null) return;
-
-            List<CharacterItem> characters = DataFileHandler.ConvertToTypedList<CharacterItem>(ModConfigData["CharacterItem"]);
+            if (!Helpers.HasCustomFeature()) return;
+            List<CharacterItem> characters = ModConfigData.GetModConfigData<CharacterItem>("CharacterItem");
+            if (characters[0] == null) return;
             __result = characters[0].TemplateId; //the first entry in the .Json will be the protagonist template ID.
-            //__result = (short)133;
         }
 
         [HarmonyPatch(typeof(GameData.Domains.Character.Character), "GetTitles")]
@@ -425,9 +389,8 @@ namespace TaiwuBossMod_Backend
             if (DomainManager.Taiwu.GetTaiwu() == null) return;
             UpdatePlayerChar();
             if (TaiwuID != __instance.GetId()) return;
-            if (ModConfigData["CharacterTitleItem"] == null) return;
-            List<CharacterTitleItem> modTitles = DataFileHandler.ConvertToTypedList<CharacterTitleItem>(ModConfigData["CharacterTitleItem"]);
-            if (__instance.GetXiangshuType() == 4)
+            List<CharacterTitleItem> modTitles = ModConfigData.GetModConfigData<CharacterTitleItem>("CharacterTitleItem");
+            if (modTitles[0] != null && __instance.GetXiangshuType() == 4)
             {
                 //FileLogger.Info($"Adding Title ID: {modTitles[0].Name}");
                 titleIds.Add(modTitles[0].TemplateId);
@@ -435,19 +398,7 @@ namespace TaiwuBossMod_Backend
 
         }
 
-        [HarmonyPatch(typeof(GameData.Domains.Character.Character), "GetTemplateId")]
-        [HarmonyPostfix]
-        public static void TemplateID(GameData.Domains.Character.Character __instance, ref short __result)
-        {
-            if (DomainManager.Taiwu.GetTaiwu() == null) return;
-            if (TaiwuID != __instance.GetId()) return;
-            if (EnableBoss)
-            {
-                __result = (short)48; //edit this to set it via ingame setting instead.
-                return;
-            }
 
-        }
 
         [HarmonyPatch(typeof(GameData.Domains.Character.Character), "GetCombatSkillGridCost")]
         [HarmonyPostfix]
@@ -457,10 +408,7 @@ namespace TaiwuBossMod_Backend
             if (TaiwuID != __instance.GetId()) return;
             __result = 1;
         }
-
-
         
-
 
         //patch for defense skills
         [HarmonyPatch(typeof(CombatDomain), "ApplyAgileOrDefenseSkill")]
@@ -541,10 +489,11 @@ namespace TaiwuBossMod_Backend
                                     Helpers.ApplySpecialEffect(DomainManager.SpecialEffect, context, skillKey, kv.Value, SpecialEffect.Instance[kv.Key].EffectActiveType);
                                 }
                             }
+                            __instance.NeedAddEffectAgileSkillId = -1;
                             break;
                         }
                     }
-                    __instance.NeedAddEffectAgileSkillId = -1;
+                    
                 }
 
             }
@@ -656,11 +605,6 @@ namespace TaiwuBossMod_Backend
 
 
             }
-            if (!EnableBoss) return;
-            BossItem bossConfig = Boss.Instance[CombatDomain.CharId2BossId[__instance.GetCharacter().GetTemplateId()]];
-            if (bossConfig == null) return;
-            List<short> bossSkills = bossConfig.PhaseAttackSkills[0].ToList();
-            Helpers.ReplaceAttackSkillList(__instance, context, bossSkills);
         }
 
         [HarmonyPatch(typeof(CombatCharacter), "Init")]
@@ -671,17 +615,235 @@ namespace TaiwuBossMod_Backend
             MergeModData();
             if (characterId != TaiwuID) return;
             GameData.Domains.Character.Character _character = DomainManager.Character.GetElement_Objects(characterId);
-            Helpers.RefreshModWeapons(_character, context);
-            if (EnableBoss)
+            
+            if (IsBossEnabled())
             {
-                AppendCharId2BossId();
-                BossItem bossConfig = Boss.Instance[CombatDomain.CharId2BossId[__instance.GetCharacter().GetTemplateId()]];
-                if (bossConfig == null) return;
-                List<short> bossSkills = bossConfig.PhaseAttackSkills[0].ToList();
-                Helpers.LearnSkillList(__instance, context, bossSkills);
+                
+                AppendTemplateId2BossID(_character.GetTemplateId());
+                BossItem bossConfig = Boss.Instance[BossID];
+                CharacterItem charConfig = Config.Character.Instance[bossConfig.CharacterIdList[bossConfig.CharacterIdList.Length - 1]];
+                if (IsBoss(__instance, characterId))
+                {
+                    InitializeBoss(characterId, context);
+                }
+            }          
+            else
+            {
+                RefreshCharId2BossId();
+                if (CustomWeapon)
+                {
+                    Helpers.RefreshModWeapons(_character, context);
+                }
+                
+            }
+        }
+
+
+        //also handles boss skills!
+        [HarmonyPatch(typeof(CombatCharacter), "EnableEnterCombatSkillEffect")]
+        [HarmonyPrefix]
+        public static void SetupTaiwu(CombatCharacter __instance, DataContext context, IEnumerable<short> skillListInCombat)
+        {
+            GameData.Domains.Character.Character taiwu = DomainManager.Taiwu.GetTaiwu();
+            if (taiwu == null || __instance.GetId() != taiwu.GetId()) return;
+            if (!Helpers.HasCustomFeature()) return;
+            // Check if the trigger skill (724), modified energizing practice neigong
+            foreach (short id in skillListInCombat)
+            {
+                if (Config.CombatSkill.Instance[id] == null) continue;
+                if (Config.CombatSkill.Instance[id].EquipType != 0) return;
+            }
+            var featureIds = taiwu.GetFeatureIds();
+
+            // =========================
+            // Remove negative features
+            // =========================
+            if (RemoveNegFeatures)
+            {
+                // Remove invalid features (Level < 0)
+                foreach (var featureId in featureIds.ToList())
+                {
+                    var feature = CharacterFeature.Instance[featureId];
+                    if (feature.Level < 0)
+                    {
+                        DomainManager.Character.GmCmd_RemoveFeature(context, taiwu.GetId(), featureId);
+                    }
+                }
             }
 
-            //DomainManager.Taiwu.UpdateCombatSkillPlan(context, 0);
+
+            // =========================
+            // Teach mod skills
+            // =========================
+
+            Helpers.LearnSkillList(__instance, context, NewSkillList);
+            List<short> attackSkills = new List<short>();
+            foreach (short skill in NewSkillList)
+            {
+                CombatSkillItem SkillConfig = Config.CombatSkill.Instance[skill];
+                if (SkillConfig.EquipType == 1)
+                {
+                    attackSkills.Add(skill);
+                }
+
+            }
+            if (LearnBossSkills)
+            {
+                SetBossSkills(__instance, context);
+            }
+            
+            LearnSectSkills(__instance, context);
+
+            if (IsBoss(__instance, __instance.GetId()) && IsBossEnabled())
+            {
+                ReplaceBossSkills(__instance, __instance.GetId(), context);
+            }
+
+            //redistribute so that the elements are in harmony
+            if (SetHarmony)
+            {
+                taiwu.SetBaseNeiliProportionOfFiveElements(new NeiliProportionOfFiveElements(20, 20, 20, 20, 20), context);
+            }
+            
+
+        }
+        
+
+        public static bool IsBossEnabled()
+        {
+            if (BossID < 0 || BossID >= Boss.Instance.Count || Boss.Instance[BossID] == null) return false;
+            return true;
+        }
+
+        public static bool IsBoss(short id)
+        {
+            if (CombatDomain.CharId2BossId.ContainsKey(id)) return true;
+            return false;
+        }
+
+        public static bool IsBoss(CombatCharacter combatCharacter, int characterId)
+        {
+            short templateId = DomainManager.Character.GetElement_Objects(characterId).GetTemplateId();
+            if (CombatDomain.CharId2BossId.ContainsKey(templateId)) return true;
+            return false;
+        }
+
+        public static void InitializeBoss(int characterId, DataContext context)
+        {
+
+            GameData.Domains.Character.Character _character = DomainManager.Character.GetElement_Objects(characterId);
+            short templateId = _character.GetTemplateId();
+            BossItem bossConfig = Boss.Instance[BossID];
+            CharacterItem charConfig = Config.Character.Instance[bossConfig.CharacterIdList[bossConfig.CharacterIdList.Length - 1]];
+            InitializeBossWeapons(_character, context, charConfig);
+        }
+        public static void ReplaceBossSkills(CombatCharacter combatCharacter, int characterId, DataContext context)
+        {
+           
+            GameData.Domains.Character.Character _character = DomainManager.Character.GetElement_Objects(characterId);
+            BossItem bossConfig = Boss.Instance[BossID];
+            CharacterItem charConfig = Config.Character.Instance[bossConfig.CharacterIdList[bossConfig.CharacterIdList.Length - 1]];
+            List<short> attackSkills = bossConfig.PhaseAttackSkills[0].ToList();
+            attackSkills.AddRange(bossConfig.PhaseAttackSkills[1].ToList());
+            List<short> neigongSkills = new List<short>();
+            List<short> agileSkills = new List<short>();
+            List<short> defenseSkills = new List<short>();
+            foreach (PresetCombatSkill skill in charConfig.PresetCombatSkills)
+            {
+                short skillId = skill.SkillTemplateId;
+                CombatSkillItem skillConfig = Config.CombatSkill.Instance[skillId];
+                switch (skillConfig.EquipType)
+                {
+                    case 0: neigongSkills.Add(skillId); break;
+                    case 2: agileSkills.Add(skillId); break;
+                    case 3: defenseSkills.Add(skillId); break;
+                    default: break;
+                }
+            }
+            FileLogger.Info($"[ReplaceBossSkills] attempting to set boss skills...");
+            FileLogger.Info($"Setting Attack Skills...");
+            Helpers.ReplaceAttackSkillList(combatCharacter, context, attackSkills);
+            FileLogger.Info($"Successfully Set Attack Skills!");
+            FileLogger.Info($"Setting Movement Skills...");
+            Helpers.ReplaceAgileSkillList(combatCharacter, context, agileSkills);
+            FileLogger.Info($"Successfully Set Movement Skills!");
+            FileLogger.Info($"Setting Defense Skills...");
+            Helpers.ReplaceDefenseSkillList(combatCharacter, context, defenseSkills);
+            FileLogger.Info($"Successfully Set Defense Skills!");
+            FileLogger.Info($"Setting Neigong Skills...");
+            Helpers.AppendNeigongSkills(combatCharacter, context, neigongSkills);
+            FileLogger.Info($"Successfully Set Neigong Skills!");
+        }
+
+        public static void InitializeBossWeapons(GameData.Domains.Character.Character character, DataContext context, CharacterItem charConfig)
+        {
+            var equipment = character.GetEquipment();
+            var inventory = character.GetInventory();
+            sbyte[] weaponSlots = EquipmentSlot.EquipmentType2Slots[0];
+            List<short> weaponIds = new List<short>();
+            foreach (PresetEquipmentItem presetEquipment in charConfig.PresetEquipment)
+            {
+                if (presetEquipment.Type == 0)
+                {
+                    weaponIds.Add(presetEquipment.TemplateId);
+                }
+            }
+            int weaponCount = weaponIds.Count() > 3 ? 3 : weaponIds.Count();
+            if (weaponIds.Count > 0)
+            {
+                int id = weaponIds[0];
+
+                for (int i = 0; i < weaponSlots.Length; i++)
+                {
+                    if (equipment[(int)weaponSlots[i]].IsValid())
+                    {
+                        //remove currently equipped equipment
+                        ItemKey weapon = equipment[(int)weaponSlots[i]];
+                        character.ChangeEquipment(context, weaponSlots[i], -1, ItemKey.Invalid);
+                        character.RemoveInventoryItem(context, weapon, 1, true);
+                    }
+                }
+                for (int i = 0; i < weaponCount; i++)
+                {
+                    ItemKey weapon = DomainManager.Item.CreateWeapon(context, weaponIds[i], 1);
+                    character.AddInventoryItem(context, weapon, 1);
+                    character.ChangeEquipment(context, -1, weaponSlots[i], weapon);
+                }
+
+            }
+        }
+
+        public static void RefreshCharId2BossId()
+        {
+            //reset
+            CombatDomain.CharId2BossId.Clear();
+            sbyte bossId = 0;
+            while ((int)bossId < Boss.Instance.Count)
+            {
+                short[] charIdList = Boss.Instance[bossId].CharacterIdList;
+                foreach (short charId in charIdList)
+                {
+                    CombatDomain.CharId2BossId[charId] = bossId;
+                }
+                bossId += 1;
+            }
+        }
+
+        public static void AppendTemplateId2BossID(short templateId)
+        {
+            //reset
+            CombatDomain.CharId2BossId.Clear();
+            sbyte bossId = 0;
+            while ((int)bossId < Boss.Instance.Count)
+            {
+                short[] charIdList = Boss.Instance[bossId].CharacterIdList;
+                foreach (short charId in charIdList)
+                {
+                    CombatDomain.CharId2BossId[charId] = bossId;
+                }
+                bossId += 1;
+            }
+            CombatDomain.CharId2BossId[templateId] = (sbyte)BossID;
         }
 
         public static void AppendCharId2BossId()
@@ -698,32 +860,12 @@ namespace TaiwuBossMod_Backend
             }
         }
 
-        /*
-        [HarmonyPatch(typeof(GameData.Domains.Character.Character), "OfflineCreateIntelligentCharacter")]
-        [HarmonyPrefix]
-        public static bool PatchCharType(GameData.Domains.Character.Character __instance, ref IntelligentCharacterCreationInfo info)
-        {
-            CharacterItem template = Config.Character.Instance[info.CharTemplateId];
-            if (template.CreatingType == 1) return true;
-            return false;
-            Helpers.SetPrivateField<byte>(template, "CreatingType", (byte)1);
-
-        }
-        [HarmonyPatch(typeof(CharacterDomain), "TryCreateGeneralRelation")]
-        [HarmonyPrefix]
-        public static bool PatchRelation(GameData.Domains.Character.Character selfChar, GameData.Domains.Character.Character relatedChar)
-        {
-            if (selfChar.GetCreatingType() != 1 || selfChar.GetCreatingType() != 1) return false ;
-            return true;
-
-        }
-        */
-
-        [HarmonyPatch(typeof(Inventory), "GetTotalWeight")]
+        [HarmonyPatch(typeof(GameData.Domains.Character.Character), "CalcCurrInventoryLoad")]
         [HarmonyPostfix]
-        public static void MoveSkillID(Inventory __instance, ref int __result)
+        public static void CharInventory(GameData.Domains.Character.Character __instance, ref int __result)
         {
-            if (!Helpers.HasCustomFeature()) return;
+            if (!Helpers.HasCustomFeature(__instance)) return;
+            if (!NoWeight) return;
             __result = 0;
         }
 
@@ -732,6 +874,7 @@ namespace TaiwuBossMod_Backend
         public static void BodyPartHealth(CombatDomain __instance, int charId, ref DamageStepCollection __result)
         {
             if (DomainManager.Taiwu.GetTaiwu == null) return;
+            if (!HealthBuff) return;
             if (charId != TaiwuID) return;
             if (!Helpers.HasCustomFeature()) return;
             for (int i = 0; __result.OuterDamageSteps.Length > i; i++)
@@ -820,6 +963,7 @@ namespace TaiwuBossMod_Backend
         [HarmonyPrefix]
         public static void AttackPrepareAniPatch3(CombatCharacterStateAttack __instance)
         {
+            if (IsBossEnabled()) return;
             CombatCharacter CombatChar = Helpers.GetPrivateField<CombatCharacter>(__instance, "CombatChar");
             if (CombatChar.GetId() != TaiwuID) return;
             sbyte _trickType = Helpers.GetPrivateField<sbyte>(__instance, "_trickType");
@@ -834,6 +978,7 @@ namespace TaiwuBossMod_Backend
         [HarmonyPrefix]
         public static void AttackPrepareAniPatch(CombatCharacter character, ref sbyte trickType)
         {
+            if (IsBossEnabled()) return;
             if (character.GetId() == TaiwuID)
             {
                 List<sbyte> tricks = new List<sbyte>() { 3, 4, 5, 9, 10, 11, 12 };
@@ -854,19 +999,48 @@ namespace TaiwuBossMod_Backend
         [HarmonyPrefix]
         public static void AttackPrepareAniPatch2(CombatCharacter character, ref sbyte trickType)
         {
+            if (IsBossEnabled()) return;
             if (character.GetId() == TaiwuID)
             {
                 trickType = _currentTrick;
             }
         }
 
-        public static void LearnBossSkills(CombatCharacter character, DataContext context)
+        [HarmonyPatch(typeof(GameData.Domains.CombatSkill.CombatSkill), "CalcCurrInnerRatio")]
+        [HarmonyPostfix]
+        public static void ModifyInnerRatio(GameData.Domains.CombatSkill.CombatSkill __instance, ref sbyte __result)
+        {
+            if (__instance.GetId().CharId != TaiwuID) return;
+            if (!ModifyRatio) return;
+            if (!Helpers.HasCustomFeature()) return;
+            __result = (sbyte)InnerRatio;
+
+        }
+
+        public static void LearnSectSkills(CombatCharacter character, DataContext context)
+        {
+            if (SectRef == 0) return;
+            GameData.Domains.Character.Character taiwu = DomainManager.Taiwu.GetTaiwu();
+            if (taiwu == null) return;
+            if (character.GetId() != TaiwuID) return;
+            List<short> sectSkills = new List<short>();
+            foreach (CombatSkillItem skill in Config.CombatSkill.Instance)
+            {
+                if (skill.SectId == SectRef)
+                {
+                    sectSkills.Add(skill.TemplateId);
+                }
+            }
+            Helpers.LearnSkillList(character, context, sectSkills);
+        }
+
+        public static void SetBossSkills(CombatCharacter character, DataContext context)
         {
             GameData.Domains.Character.Character taiwu = DomainManager.Taiwu.GetTaiwu();
             if (taiwu == null) return;
             if (character.GetId() != TaiwuID) return;
             List<short> bossSkills = new List<short>();
-            for (int i = 0; i < Config.Boss.Instance.Count; i++)
+            for (int i = 0; i < Boss.Instance.Count; i++)
             {
                 BossItem bossConfig = Boss.Instance[i];
                 foreach (short skill in bossConfig.PlayerCastSkills)
@@ -883,7 +1057,7 @@ namespace TaiwuBossMod_Backend
 
         public static void MergeModData()
         {
-            ModConfigData = DataFileHandler.LoadAllJsons();
+            ModConfigData.Initialize();
             DataFileHandler.LoadAndMergeAll();
         }
     }

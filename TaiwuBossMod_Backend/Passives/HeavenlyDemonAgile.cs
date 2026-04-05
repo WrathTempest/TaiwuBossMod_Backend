@@ -31,8 +31,6 @@ namespace TaiwuBossMod_Backend.Passives
             base.OnEnable(context);
             this.AffectDatas = new Dictionary<AffectedDataKey, EDataModifyType>();
             this.AffectDatas = new Dictionary<AffectedDataKey, EDataModifyType>();
-            this.AffectDatas.Add(new AffectedDataKey(base.CharacterId, 156, -1, -1, -1, -1), EDataModifyType.Add);
-            this.AffectDatas.Add(new AffectedDataKey(base.CharacterId, 157, -1, -1, -1, -1), EDataModifyType.Add);
             this._affecting = false;
             this.OnMoveSkillCanAffectChanged(context, default(DataUid));
             //FileLogger.Info($"Enabled Agile Skill!");
@@ -51,31 +49,6 @@ namespace TaiwuBossMod_Backend.Passives
             //FileLogger.Info($"Affecting Move Skill ID: {base.CombatChar.GetAffectingMoveSkillId()}");
             //FileLogger.Info($"Is MoveSkillID == SkillTemplateID? {base.CombatChar.GetAffectingMoveSkillId() == base.SkillTemplateId}");
             base.OnMoveSkillChanged(context, dataUid);
-        }
-
-        public override int GetModifyValue(AffectedDataKey dataKey, int currModifyValue)
-        {
-            bool flag = dataKey.CharId != base.CharacterId;
-            int result;
-            if (flag)
-            {
-                result = 0;
-            }
-            else
-            {
-                ushort fieldId = dataKey.FieldId;
-                bool flag2 = fieldId - 156 <= 1;
-                bool flag3 = flag2;
-                if (flag3)
-                {
-                    result = 10000;
-                }
-                else
-                {
-                    result = 0;
-                }
-            }
-            return result;
         }
 
         // Token: 0x060050E7 RID: 20711 RVA: 0x00A4FA74 File Offset: 0x00A4DC74

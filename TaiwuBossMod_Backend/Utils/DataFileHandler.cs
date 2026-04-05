@@ -8,7 +8,6 @@ using System.Linq;
 using System.Reflection;
 using System.Xml;
 using TaiwuBossMod_Backend.Utils;
-using TaiwuBossMod_Frontend.Utils;
 
 namespace TaiwuBossMod_Backend.Utils
 {

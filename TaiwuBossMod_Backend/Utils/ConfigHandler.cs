@@ -14,7 +14,7 @@ using UnityEngine;
 using UnityEngine.TextCore;
 using UnityEngine.Windows;
 
-namespace TaiwuBossMod_Frontend.Utils
+namespace TaiwuBossMod_Backend.Utils
 {
     internal class ConfigHandler
     {

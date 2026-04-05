@@ -48,6 +48,10 @@ namespace TaiwuBossMod_Backend.Passives
             this.AffectDatas.Add(new AffectedDataKey(base.CharacterId, 229, -1, -1, -1, -1), EDataModifyType.Custom);
             this.AffectDatas.Add(new AffectedDataKey(base.CharacterId, 227, -1, -1, -1, -1), EDataModifyType.Custom);
             this.AffectDatas.Add(new AffectedDataKey(base.CharacterId, 93, -1, -1, -1, -1), EDataModifyType.Custom);
+            this.AffectDatas.Add(new AffectedDataKey(base.CharacterId, 83, -1, -1, -1, -1), EDataModifyType.Custom);
+            this.AffectDatas.Add(new AffectedDataKey(base.CharacterId, 84, -1, -1, -1, -1), EDataModifyType.Custom);
+            this.AffectDatas.Add(new AffectedDataKey(base.CharacterId, 156, -1, -1, -1, -1), EDataModifyType.Add);
+            this.AffectDatas.Add(new AffectedDataKey(base.CharacterId, 157, -1, -1, -1, -1), EDataModifyType.Add);
         }
 
         // Token: 0x06000027 RID: 39 RVA: 0x000033BD File Offset: 0x000015BD
@@ -58,7 +62,7 @@ namespace TaiwuBossMod_Backend.Passives
 
         private void OnMarkChanged(DataContext context, DataUid dataUid)
         {
-            this._addPower = AddPowerUnit * (base.CombatChar.GetDefeatMarkCollection().OuterInjuryMarkList.Sum() + base.CombatChar.GetDefeatMarkCollection().InnerInjuryMarkList.Sum() + base.CombatChar.GetDefeatMarkCollection().FatalDamageMarkCount);
+            this._addPower = AddPowerUnit * (base.CombatChar.GetDefeatMarkCollection().GetTotalCount());
             DomainManager.SpecialEffect.InvalidateCache(context, base.CharacterId, 211);
             FileLogger.Info($"Mark Changed! Current Power: {this._addPower}");
         }
@@ -77,36 +81,44 @@ namespace TaiwuBossMod_Backend.Passives
             {
                 result = dataValue;
             }
+            //force values you want to be true
+            else if (dataKey.FieldId == 83 || dataKey.FieldId == 84)
+            {
+                result = true;
+            }
+            //force it to be false
+            else if (dataKey.FieldId == 227 || dataKey.FieldId == 142 || dataKey.FieldId == 137 || dataKey.FieldId == 159 || dataKey.FieldId == 229 || dataKey.FieldId == 93)
+            {
+                result = false;
+            }
             else
             {
-                bool flag3 = dataKey.FieldId == 142 || dataKey.FieldId == 137 || dataKey.FieldId == 159 || dataKey.FieldId == 229 || dataKey.FieldId == 227 || dataKey.FieldId == 93;
-                result = (!flag3 && dataValue);
+                result = dataValue;
             }
             return result;
         }
 
-        // Token: 0x0600002B RID: 43 RVA: 0x00003548 File Offset: 0x00001748
         public override int GetModifyValue(AffectedDataKey dataKey, int currModifyValue)
         {
-            bool flag = dataKey.CharId != base.CharacterId || !base.CanAffect;
-            int result;
-            if (flag)
+            // Only affect the target character while the effect is active
+            if (dataKey.CharId != base.CharacterId || !base.CanAffect)
+                return 0;
+
+            switch (dataKey.FieldId)
             {
-                result = 0;
+                // Apply +10000 to field IDs 156 and 157
+                case 156:
+                case 157:
+                    return 10000;
+
+                // Apply custom power bonus to field ID 211
+                case 211:
+                    return this._addPower;
+
+                // No change for all other fields
+                default:
+                    return 0;
             }
-            else
-            {
-                bool flag2 = dataKey.FieldId == 211;
-                if (flag2)
-                {
-                    result = this._addPower;
-                }
-                else
-                {
-                    result = 0;
-                }
-            }
-            return result;
         }
 
         // Token: 0x04000011 RID: 17

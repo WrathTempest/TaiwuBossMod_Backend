@@ -32,10 +32,7 @@ namespace TaiwuBossMod_Backend.Utils
             List<WeaponItem> weapons = new List<WeaponItem>();
             sbyte[] weaponSlots = EquipmentSlot.EquipmentType2Slots[0];
 
-            if (BossPlugin.ModConfigData["WeaponItem"] != null)
-            {
-                weapons = DataFileHandler.ConvertToTypedList<WeaponItem>(BossPlugin.ModConfigData["WeaponItem"]);
-            }
+            weapons = ModConfigData.GetModConfigData<WeaponItem>("WeaponItem");
             int modWeaponCount = weapons.Count() > 3 ? 3 : weapons.Count();
             if (weapons.Count > 0)
             {
@@ -67,12 +64,9 @@ namespace TaiwuBossMod_Backend.Utils
         }
         public static bool HasCustomFeature(GameData.Domains.Character.Character character)
         {
-            if (DomainManager.Taiwu.GetTaiwu() == null) return false;
-            GameData.Domains.Character.Character taiwu = DomainManager.Taiwu.GetTaiwu();
+            GameData.Domains.Character.Character taiwu = character;
             List<short> featureIds = taiwu.GetFeatureIds();
-            if (BossPlugin.ModConfigData["CharacterFeatureItem"] == null) return false;
-            List<CharacterFeatureItem> modFeatures = DataFileHandler.ConvertToTypedList<CharacterFeatureItem>(BossPlugin.ModConfigData["CharacterFeatureItem"]);
-            List<short> modTemplates = GetTemplateIds<CharacterFeatureItem>(modFeatures);
+            List<short> modTemplates = ModConfigData.GetTemplateIds<CharacterFeatureItem>("CharacterFeatureItem");
             foreach (short features in featureIds)
             {
                 if (modTemplates.Contains(features)) return true;
@@ -84,9 +78,7 @@ namespace TaiwuBossMod_Backend.Utils
             if (DomainManager.Taiwu.GetTaiwu() == null) return false;
             GameData.Domains.Character.Character taiwu = DomainManager.Taiwu.GetTaiwu();
             List<short> featureIds = taiwu.GetFeatureIds();
-            if (BossPlugin.ModConfigData["CharacterFeatureItem"] == null) return false;
-            List<CharacterFeatureItem> modFeatures = DataFileHandler.ConvertToTypedList<CharacterFeatureItem>(BossPlugin.ModConfigData["CharacterFeatureItem"]);
-            List<short> modTemplates = GetTemplateIds<CharacterFeatureItem>(modFeatures);
+            List<short> modTemplates = ModConfigData.GetTemplateIds<CharacterFeatureItem>("CharacterFeatureItem");
             foreach (short features in featureIds)
             {
                 if (modTemplates.Contains(features)) return true;
@@ -94,16 +86,7 @@ namespace TaiwuBossMod_Backend.Utils
             return false;
         }
 
-        public static List<short> GetTemplateIds<T>(List<T> modConfig)
-        {
-            List<short> modTemplates = new List<short>();
-            foreach (T item in modConfig)
-            {
-                short id = GetPrivateField<short>(item, "TemplateId");
-                modTemplates.Add(id);
-            }
-            return modTemplates;
-        }
+        
 
 
         public static void EquipAttackSkillList(CombatCharacter __instance, DataContext context, List<short> newskillList)
@@ -130,22 +113,51 @@ namespace TaiwuBossMod_Backend.Utils
             __instance.SetAttackSkillList(newskillList, context);
         }
 
-        public static void ReplaceAttackSkillList(CombatCharacter __instance, DataContext context, List<short> newskillList)
+        public static void RemoveEquippedSkills (GameData.Domains.Character.Character character, DataContext context, List<short> skillList)
+        {
+            foreach (short skill in skillList)
+            {
+                if (Config.CombatSkill.Instance[skill] != null)
+                {
+                    character.RemoveEquippedCombatSkill(context, skill);
+                }
+
+            }
+        }
+
+        public static void AppendNeigongSkills(CombatCharacter __instance, DataContext context, List<short> newskillList)
         {
             int id = __instance.GetId();
             GameData.Domains.Character.Character Char = __instance.GetCharacter();
             LearnSkillList(__instance, context, newskillList);
-            List<short> attackSkills = __instance.GetAttackSkillList();
-            short[] equippedCombatSkills = __instance.GetCharacter().GetEquippedCombatSkills();
-            int num = (int)GameData.Domains.Character.CombatSkillHelper.SlotBeginIndexes[1];
-            foreach (short attackskill in attackSkills)
+            short[] equippedCombatSkills = Char.GetEquippedCombatSkills();
+            List<short> actualSkills = new List<short>();
+            foreach (short skill in newskillList)
             {
-                if (Config.CombatSkill.Instance[attackskill] != null)
+                if (Config.CombatSkill.Instance[skill] != null && !equippedCombatSkills.Contains(skill))
                 {
-                    Char.RemoveEquippedCombatSkill(context, attackskill);
+                    sbyte equiptype = Config.CombatSkill.Instance[skill].EquipType;
+                    int availableSlotCount = (int)Char.GetCombatSkillSlotCountWithGeneric(equiptype) - Char.GetCombatSkillTypeRequireGrid(equiptype);
+                    sbyte skillRequiredSlotCount = Char.GetCombatSkillGridCost(skill);
+                    if (availableSlotCount >= skillRequiredSlotCount)
+                    {
+                        Char.AddEquippedCombatSkill(context, skill);
+                        actualSkills.Add(skill);
+                    }
                 }
-                
             }
+            actualSkills.AddRange(__instance.GetNeigongList());
+            __instance.SetNeigongList(actualSkills, context);
+        }
+
+        public static void ReplaceAgileSkillList(CombatCharacter __instance, DataContext context, List<short> newskillList)
+        {
+            int id = __instance.GetId();
+            GameData.Domains.Character.Character Char = __instance.GetCharacter();
+            LearnSkillList(__instance, context, newskillList);
+            List<short> agileSkills = __instance.GetAgileSkillList();
+            RemoveEquippedSkills(Char, context, agileSkills);
+            List<short> actualSkills = new List<short>();
             foreach (short skill in newskillList)
             {
                 if (Config.CombatSkill.Instance[skill] != null)
@@ -156,11 +168,61 @@ namespace TaiwuBossMod_Backend.Utils
                     if (availableSlotCount >= skillRequiredSlotCount)
                     {
                         Char.AddEquippedCombatSkill(context, skill);
+                        actualSkills.Add(skill);
+                    }
+                }
+            }
+            __instance.SetAgileSkillList(actualSkills, context); //actually set it inside combat
+        }
+
+        public static void ReplaceDefenseSkillList(CombatCharacter __instance, DataContext context, List<short> newskillList)
+        {
+            int id = __instance.GetId();
+            GameData.Domains.Character.Character Char = __instance.GetCharacter();
+            LearnSkillList(__instance, context, newskillList);
+            List<short> defenseSkills = __instance.GetDefenceSkillList();
+            RemoveEquippedSkills(Char, context, defenseSkills);
+            List<short> actualSkills = new List<short>();
+            foreach (short skill in newskillList)
+            {
+                if (Config.CombatSkill.Instance[skill] != null)
+                {
+                    sbyte equiptype = Config.CombatSkill.Instance[skill].EquipType;
+                    int availableSlotCount = (int)Char.GetCombatSkillSlotCountWithGeneric(equiptype) - Char.GetCombatSkillTypeRequireGrid(equiptype);
+                    sbyte skillRequiredSlotCount = Char.GetCombatSkillGridCost(skill);
+                    if (availableSlotCount >= skillRequiredSlotCount)
+                    {
+                        Char.AddEquippedCombatSkill(context, skill);
+                        actualSkills.Add(skill);
+                    }
+                }
+            }
+            __instance.SetDefenceSkillList(actualSkills, context); //actually set it inside combat
+        }
+
+        public static void ReplaceAttackSkillList(CombatCharacter __instance, DataContext context, List<short> newskillList)
+        {
+            int id = __instance.GetId();
+            GameData.Domains.Character.Character Char = __instance.GetCharacter();
+            LearnSkillList(__instance, context, newskillList);
+            List<short> attackSkills = __instance.GetAttackSkillList();
+            RemoveEquippedSkills(Char, context, attackSkills);
+            List<short> actualSkills = new List<short>();
+            foreach (short skill in newskillList)
+            {
+                if (Config.CombatSkill.Instance[skill] != null)
+                {
+                    sbyte equiptype = Config.CombatSkill.Instance[skill].EquipType;
+                    int availableSlotCount = (int)Char.GetCombatSkillSlotCountWithGeneric(equiptype) - Char.GetCombatSkillTypeRequireGrid(equiptype);
+                    sbyte skillRequiredSlotCount = Char.GetCombatSkillGridCost(skill);
+                    if (availableSlotCount >= skillRequiredSlotCount)
+                    {
+                        Char.AddEquippedCombatSkill(context, skill);
+                        actualSkills.Add(skill);
                     }
                 }              
             }
-            __instance.SetAttackSkillList(newskillList, context); //actually set it inside combat
-
+            __instance.SetAttackSkillList(actualSkills, context); //actually set it inside combat
         }
         public static void LearnSkillList(CombatCharacter __instance, DataContext context, List<short> skillList)
         {
