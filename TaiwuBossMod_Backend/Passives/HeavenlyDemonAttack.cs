@@ -160,6 +160,6 @@ namespace TaiwuBossMod_Backend.Passives
         private bool _registeredStateMachineUpdateEnd;
 
         // Token: 0x0400001A RID: 26
-        protected short AffectFrameCount2 = 1800;
+        protected short AffectFrameCount2 = 600;
     }
 }

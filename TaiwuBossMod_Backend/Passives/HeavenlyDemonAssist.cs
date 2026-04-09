@@ -1,5 +1,8 @@
 ﻿using GameData.Common;
+using GameData.DomainEvents;
 using GameData.Domains;
+using GameData.Domains.Character;
+using GameData.Domains.Combat;
 using GameData.Domains.CombatSkill;
 using GameData.Domains.SpecialEffect;
 using GameData.Domains.SpecialEffect.CombatSkill.Common.Assist;
@@ -10,6 +13,7 @@ using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using TaiwuBossMod;
 using TaiwuBossMod_Backend.Utils;
+using static UnityEngine.UI.CanvasScaler;
 
 
 namespace TaiwuBossMod_Backend.Passives
@@ -37,8 +41,12 @@ namespace TaiwuBossMod_Backend.Passives
         public override void OnEnable(DataContext context)
         {
             this._addPower = 0;
+            this._neiliAllocationTypeRandomPool = ObjectPool<List<byte>>.Instance.Get();
+            this._affected = false;
             this._defeatMarkUid = base.ParseCombatCharacterDataUid(54);
             GameDataBridge.AddPostDataModificationHandler(this._defeatMarkUid, base.DataHandlerKey, new Action<DataContext, DataUid>(this.OnMarkChanged));
+            Events.RegisterHandler_NormalAttackEnd(new Events.OnNormalAttackEnd(this.OnNormalAttackEnd));
+            Events.RegisterHandler_AttackSkillAttackHit(new Events.OnAttackSkillAttackHit(this.OnAttackSkillAttackHit));
             base.CreateAffectedData(142, EDataModifyType.Custom, -1);
             base.CreateAffectedData(137, EDataModifyType.Custom, -1);
             base.CreateAffectedData(211, EDataModifyType.AddPercent, -1);
@@ -50,6 +58,7 @@ namespace TaiwuBossMod_Backend.Passives
             this.AffectDatas.Add(new AffectedDataKey(base.CharacterId, 93, -1, -1, -1, -1), EDataModifyType.Custom);
             this.AffectDatas.Add(new AffectedDataKey(base.CharacterId, 83, -1, -1, -1, -1), EDataModifyType.Custom);
             this.AffectDatas.Add(new AffectedDataKey(base.CharacterId, 84, -1, -1, -1, -1), EDataModifyType.Custom);
+            this.AffectDatas.Add(new AffectedDataKey(base.CharacterId, 231, -1, -1, -1, -1), EDataModifyType.Custom);
             this.AffectDatas.Add(new AffectedDataKey(base.CharacterId, 156, -1, -1, -1, -1), EDataModifyType.Add);
             this.AffectDatas.Add(new AffectedDataKey(base.CharacterId, 157, -1, -1, -1, -1), EDataModifyType.Add);
         }
@@ -57,13 +66,33 @@ namespace TaiwuBossMod_Backend.Passives
         // Token: 0x06000027 RID: 39 RVA: 0x000033BD File Offset: 0x000015BD
         public override void OnDisable(DataContext context)
         {
+            Events.UnRegisterHandler_NormalAttackEnd(new Events.OnNormalAttackEnd(this.OnNormalAttackEnd));
+            Events.UnRegisterHandler_AttackSkillAttackHit(new Events.OnAttackSkillAttackHit(this.OnAttackSkillAttackHit));
             GameDataBridge.RemovePostDataModificationHandler(this._defeatMarkUid, base.DataHandlerKey);
+        }
+
+        private void OnAttackSkillAttackHit(DataContext context, CombatCharacter attacker, CombatCharacter defender, short skillId, int index, bool critical)
+        {
+            bool flag = attacker.GetId() != base.CharacterId;
+            if (!flag)
+            {
+                ChangeNeiliAllocation(context);
+            }
+        }
+        private void OnNormalAttackEnd(DataContext context, CombatCharacter attacker, CombatCharacter defender, sbyte trickType, int pursueIndex, bool hit, bool isFightBack)
+        {
+            bool flag = attacker.GetId() != base.CharacterId || !hit;
+            if (!flag)
+            {
+                ChangeNeiliAllocation(context);
+            }
         }
 
         private void OnMarkChanged(DataContext context, DataUid dataUid)
         {
             this._addPower = AddPowerUnit * (base.CombatChar.GetDefeatMarkCollection().GetTotalCount());
             DomainManager.SpecialEffect.InvalidateCache(context, base.CharacterId, 211);
+            base.ShowSpecialEffectTips(1);
             FileLogger.Info($"Mark Changed! Current Power: {this._addPower}");
         }
 
@@ -82,7 +111,7 @@ namespace TaiwuBossMod_Backend.Passives
                 result = dataValue;
             }
             //force values you want to be true
-            else if (dataKey.FieldId == 83 || dataKey.FieldId == 84)
+            else if (dataKey.FieldId == 83 || dataKey.FieldId == 84 || dataKey.FieldId == 231)
             {
                 result = true;
             }
@@ -96,6 +125,12 @@ namespace TaiwuBossMod_Backend.Passives
                 result = dataValue;
             }
             return result;
+        }
+
+        private void OnStateMachineUpdateEnd(DataContext context, CombatCharacter combatChar)
+        {
+            this._affected = false;
+            Events.UnRegisterHandler_CombatStateMachineUpdateEnd(new Events.OnCombatStateMachineUpdateEnd(this.OnStateMachineUpdateEnd));
         }
 
         public override int GetModifyValue(AffectedDataKey dataKey, int currModifyValue)
@@ -120,6 +155,66 @@ namespace TaiwuBossMod_Backend.Passives
                     return 0;
             }
         }
+
+        private unsafe void ChangeNeiliAllocation(DataContext context)
+        {
+            if (this._affected)
+                return;
+
+            NeiliAllocation selfNeiliAllocation = base.CombatChar.GetNeiliAllocation();
+            NeiliAllocation enemyNeiliAllocation = base.CurrEnemyChar.GetNeiliAllocation();
+
+            this._neiliAllocationTypeRandomPool.Clear();
+
+            short* selfPtr = selfNeiliAllocation.Items;
+            short* enemyPtr = enemyNeiliAllocation.Items;
+            {
+                for (byte type = 0; type < 4; type++)
+                {
+                    short enemyValue = enemyPtr[type];
+                    short selfValue = selfPtr[type];
+
+                    if (enemyValue > 0 &&
+                        selfValue < DomainManager.Combat.GetMaxNeiliAllocation(base.CombatChar, type))
+                    {
+                        this._neiliAllocationTypeRandomPool.Add(type);
+                    }
+                }
+
+                if (this._neiliAllocationTypeRandomPool.Count <= 0)
+                    return;
+
+                byte affectType = this._neiliAllocationTypeRandomPool[
+                    context.Random.Next(0, this._neiliAllocationTypeRandomPool.Count)
+                ];
+
+                int changeValue = context.Random.Next(1,5);
+
+                changeValue = Math.Min(changeValue, enemyPtr[affectType]);
+
+                changeValue = Math.Min(
+                    changeValue,
+                    DomainManager.Combat.GetMaxNeiliAllocation(base.CombatChar, affectType) - selfPtr[affectType]
+                );
+
+                base.CurrEnemyChar.ChangeNeiliAllocation(context, affectType, -changeValue, true, true);
+                base.CombatChar.ChangeNeiliAllocation(context, affectType, changeValue, true, true);
+                base.CurrEnemyChar.SilenceNeiliAllocationAutoRecover(context, 120);
+            }
+
+            //base.ShowSpecialEffectTips(0);
+            this._affected = true;
+
+            Events.RegisterHandler_CombatStateMachineUpdateEnd(
+                new Events.OnCombatStateMachineUpdateEnd(this.OnStateMachineUpdateEnd)
+            );
+        }
+
+        // Token: 0x04004EE0 RID: 20192
+        private List<byte> _neiliAllocationTypeRandomPool;
+
+        // Token: 0x04004EE1 RID: 20193
+        private bool _affected;
 
         // Token: 0x04000011 RID: 17
         private const sbyte ChangeDamage = 50;

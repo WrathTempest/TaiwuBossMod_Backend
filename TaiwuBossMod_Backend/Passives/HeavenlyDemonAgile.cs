@@ -1,13 +1,17 @@
 ﻿using GameData.Common;
 using GameData.DomainEvents;
 using GameData.Domains;
+using GameData.Domains.Character;
 using GameData.Domains.Combat;
 using GameData.Domains.CombatSkill;
 using GameData.Domains.SpecialEffect;
 using GameData.Domains.SpecialEffect.CombatSkill;
 using GameData.Domains.SpecialEffect.CombatSkill.Common.Agile;
+using GameData.Domains.SpecialEffect.CombatSkill.XiangShu.Neigong.RandomEnemy;
 using GameData.GameDataBridge;
+using HarmonyLib;
 using System;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using TaiwuBossMod;
 using TaiwuBossMod_Backend.Utils;
@@ -72,6 +76,8 @@ namespace TaiwuBossMod_Backend.Passives
             }
         }
 
+        
+       
         // Token: 0x04004FC0 RID: 20416
         private bool _affecting;
     }

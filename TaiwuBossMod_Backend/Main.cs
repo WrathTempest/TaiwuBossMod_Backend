@@ -19,10 +19,12 @@ using GameData.Domains.SpecialEffect.CombatSkill.XiangShu.Attack.WeiQi;
 using GameData.Domains.SpecialEffect.CombatSkill.XiangShu.Attack.XiangShu;
 using GameData.Domains.SpecialEffect.CombatSkill.XiangShu.Attack.XueFeng;
 using GameData.Domains.SpecialEffect.CombatSkill.XiangShu.Attack.YiXiang;
+using GameData.Domains.SpecialEffect.CombatSkill.XiangShu.Attack.ZiWuXiao;
 using GameData.Domains.SpecialEffect.CombatSkill.XiangShu.Defense;
 using GameData.Domains.SpecialEffect.CombatSkill.XiangShu.Neigong.Boss;
 using GameData.Domains.SpecialEffect.CombatSkill.XiangShu.Neigong.RandomEnemy;
 using GameData.Domains.SpecialEffect.LegendaryBook.Leg;
+using GameData.Domains.Taiwu.Profession;
 using GameData.Domains.World;
 using GameData.Utilities;
 using HarmonyLib;
@@ -47,6 +49,7 @@ namespace TaiwuBossMod_Backend
         private Harmony harmony;
         public static readonly NLog.Logger BackendLogger = LogManager.GetLogger("TaiwuBossMod");
         public static string pluginDir;
+        public static string identifier = "com.izayoixx.TaiwuBossMod";
 
 
         public static int SectRef = 1;
@@ -59,7 +62,9 @@ namespace TaiwuBossMod_Backend
         public static bool CustomWeapon = false;
         public static bool HealthBuff = false;
         public static bool ModifyRatio = false;
+        public static bool CustomCharTemplate = false;
         public static int InnerRatio = 50;
+        public static bool MaxExp = false;
 
         private static List<CustomEffect> CustomEffectDict = new List<CustomEffect>();
 
@@ -115,6 +120,8 @@ namespace TaiwuBossMod_Backend
             DomainManager.Mod.GetSetting(base.ModIdStr, "HealthBuff", ref HealthBuff);
             DomainManager.Mod.GetSetting(base.ModIdStr, "ModifyRatio", ref ModifyRatio);
             DomainManager.Mod.GetSetting(base.ModIdStr, "InnerRatio", ref InnerRatio);
+            DomainManager.Mod.GetSetting(base.ModIdStr, "CustomCharTemplate", ref CustomCharTemplate);
+            DomainManager.Mod.GetSetting(base.ModIdStr, "MaxExp", ref MaxExp);
             if (BossID >= 14 || BossID == 10)
             {
                 BossID = -1;
@@ -166,7 +173,6 @@ namespace TaiwuBossMod_Backend
         {
             CustomEffectDict.Clear();
             NewSkillList.Clear();
-
             List<CombatSkillItem> modSkills = ModConfigData.GetModConfigData<CombatSkillItem>("CombatSkillItem");
             foreach (CombatSkillItem skill in modSkills)
             {
@@ -178,6 +184,17 @@ namespace TaiwuBossMod_Backend
                 typeof(HeavenlyDemonAttack),
                 typeof(ChaiRen),
                 typeof(XieWangWuZheng)
+            }));
+            CustomEffectDict.Add(new CustomEffect("HeavenlyDemonAttack2", new List<Type>
+            {
+                typeof(SanSanHuaLing),
+                typeof(QiQiShengHui),
+                typeof(JiuJiuZaoMing)
+            }));
+            CustomEffectDict.Add(new CustomEffect("HeavenlyDemonAttack3", new List<Type>
+            {
+                typeof(GuiShenXuanYiLing),
+                typeof(HeavenlyDemonAttack3)
             }));
             CustomEffectDict.Add(new CustomEffect("HeavenlyDemonAssist", new List<Type>
             {
@@ -202,7 +219,7 @@ namespace TaiwuBossMod_Backend
             CustomEffectDict.Add(new CustomEffect("HeavenlyDemonNeigong", new List<Type>
             {
                 typeof(HeavenlyDemonNeigong),
-                typeof(XuanYuJiuLao), //steal enemy qi on damage them
+                //typeof(XuanYuJiuLao), //steal enemy qi on damage them
                 typeof(HuanMu),
                 typeof(BaiXie),
                 typeof(YaoXinShiXian),
@@ -214,6 +231,7 @@ namespace TaiwuBossMod_Backend
                 typeof(FuJunYouYu),
                 typeof(QingGuoJueShi)
             }));
+            
         }
 
 
@@ -286,8 +304,7 @@ namespace TaiwuBossMod_Backend
             bool result;
             if (taiwu.GetId() == combatChar.GetId())
             {
-                bool flag3 = combatChar.OuterInjuryAutoHealSpeeds.Max<short>() != 1;
-                if (flag3)
+                if (!(combatChar.GetBossPhase() > 0))
                 {
                     DomainManager.Combat.Reset(context, combatChar);               
                     combatChar.ChangeBossPhaseEffectId = __instance.EffectId;
@@ -299,6 +316,7 @@ namespace TaiwuBossMod_Backend
                     combatChar.GetCharacter().SetHealth(combatChar.GetCharacter().GetLeftMaxHealth(false), context);
                     combatChar.GetCharacter().SetDisorderOfQi(combatChar.GetOldDisorderOfQi(), context);
                     combatChar.SetMixPoisonAffectedCount(combatChar.GetMixPoisonAffectedCount().Clear(), context);
+                    combatChar.SetBossPhase((sbyte)(combatChar.GetBossPhase() + 1), context);
                     Events.RaiseChangeBossPhase(context);
 
                     Helpers.Call(__instance, "ActivePhase2Effect", context);
@@ -376,7 +394,8 @@ namespace TaiwuBossMod_Backend
         {
             MergeModData();
             if (DomainManager.Taiwu.GetTaiwu() != null) return;
-            if (!Helpers.HasCustomFeature()) return;
+            //if (!Helpers.HasCustomFeature()) return;
+            if (!CustomCharTemplate) return;
             List<CharacterItem> characters = ModConfigData.GetModConfigData<CharacterItem>("CharacterItem");
             if (characters[0] == null) return;
             __result = characters[0].TemplateId; //the first entry in the .Json will be the protagonist template ID.
@@ -534,6 +553,7 @@ namespace TaiwuBossMod_Backend
                                 {
                                     if (SpecialEffect.Instance[kv.Key].EffectActiveType == 0 && combatSkillItem.EquipType != 2)
                                     {
+                                        FileLogger.Info($"Adding Effect of skill: {combatSkillItem.Name}, type: {kv.Value.Name}, SkillKey: {skillKey.CharId}, {skillKey.SkillTemplateId}");
                                         Helpers.ApplySpecialEffect(DomainManager.SpecialEffect, context, skillKey, kv.Value, 0);
                                     }
                                 }
@@ -704,7 +724,12 @@ namespace TaiwuBossMod_Backend
             {
                 taiwu.SetBaseNeiliProportionOfFiveElements(new NeiliProportionOfFiveElements(20, 20, 20, 20, 20), context);
             }
-            
+
+            if (MaxExp)
+            {
+                taiwu.ChangeExp(context, 999999999);
+            }
+                    
 
         }
         
@@ -974,6 +999,24 @@ namespace TaiwuBossMod_Backend
             }
         }
 
+        [HarmonyPatch(typeof(CombatDomain), "GetFailAnimationAndSound")]
+        [HarmonyPrefix]
+        public static bool AttackPrepareAniPatch(CombatDomain __instance, CombatCharacter attacker, DataContext context, ref ValueTuple<string, string, string> __result, bool kill)
+        {
+            if (IsBossEnabled()) return true;
+            if (attacker.GetId() != TaiwuID) return true;
+            if (!kill) return true;
+            GameData.Domains.Item.Weapon weapon = DomainManager.Item.GetElement_Weapons(__instance.GetUsingWeaponKey(attacker).Id);
+            TrickTypeItem trickConfig = Config.TrickType.Instance[_currentTrick];
+            int weaponAction = (int)weapon.GetWeaponAction();
+            List<string> aniRandomPool = trickConfig.ExecuteAni[weaponAction];
+            List<string> particleRandomPool = trickConfig.ExecuteParticle[weaponAction];
+            List<string> soundRandomPool = trickConfig.ExecuteSound[weaponAction];
+            int index = context.Random.Next(aniRandomPool.Count);
+            __result = new ValueTuple<string, string, string>(aniRandomPool[index], particleRandomPool[index], soundRandomPool[index]);
+            return false;
+        }
+
         [HarmonyPatch(typeof(CombatDomain), "GetPrepareAttackAni")]
         [HarmonyPrefix]
         public static void AttackPrepareAniPatch(CombatCharacter character, ref sbyte trickType)
@@ -1006,6 +1049,16 @@ namespace TaiwuBossMod_Backend
             }
         }
 
+        //prevent skill bans in events and specific battles
+        [HarmonyPatch(typeof(CombatDomain), "SkillCanUseInCurrCombat")]
+        [HarmonyPostfix]
+        public static void AttackPrepareAniPatch2(CombatDomain __instance, int charId, ref bool __result)
+        {
+            if (!Helpers.HasCustomFeature()) return;
+            if (charId != TaiwuID) return;
+            __result = true;
+        }
+
         [HarmonyPatch(typeof(GameData.Domains.CombatSkill.CombatSkill), "CalcCurrInnerRatio")]
         [HarmonyPostfix]
         public static void ModifyInnerRatio(GameData.Domains.CombatSkill.CombatSkill __instance, ref sbyte __result)
@@ -1014,6 +1067,30 @@ namespace TaiwuBossMod_Backend
             if (!ModifyRatio) return;
             if (!Helpers.HasCustomFeature()) return;
             __result = (sbyte)InnerRatio;
+
+        }
+
+        //set immortality
+        [HarmonyPatch(typeof(ProfessionSkillHandle), "UnpackCrossArchiveProfession")]
+        [HarmonyPostfix]
+        public static void Immortality(DataContext context)
+        {
+            if (!Helpers.HasCustomFeature()) return;
+            GameData.Domains.Character.Character taiwu = DomainManager.Taiwu.GetTaiwu();
+            if (taiwu.GetCurrAge() > 16)
+            {
+                taiwu.SetCurrAge(16, context);
+            }
+
+        }
+
+        [HarmonyPatch(typeof(GameData.Domains.Character.Character), "GetInteractionGrade")]
+        [HarmonyPostfix]
+        public static void InteractionGrade(GameData.Domains.Character.Character __instance, ref sbyte __result)
+        {
+            if (!Helpers.HasCustomFeature()) return;
+            if (__instance.GetId() != TaiwuID) return;
+            __result = 8;
 
         }
 
